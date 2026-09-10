@@ -1,0 +1,2253 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>分镜审核台 · AI 短剧工作流</title>
+<!-- Tailwind CSS v3 CDN -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  /* Tailwind 主题扩展：深色工作区配色 */
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          ink: {
+            bg: '#121212',     // 页面底色
+            panel: '#161616',  // 面板
+            raise: '#1c1c1c',  // 抬升面
+            line: '#262626',   // 分割线
+            mute: '#8f8f8f',   // 次要文字
+            faint: '#5c5c5c',  // 更弱文字/图标
+          }
+        },
+        fontFamily: {
+          sans: ['-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', '"PingFang SC"', '"Hiragino Sans GB"', '"Microsoft YaHei"', 'sans-serif'],
+          mono: ['"SF Mono"', 'Menlo', 'Consolas', 'monospace'],
+        }
+      }
+    }
+  }
+</script>
+<style>
+  /* ===== 自定义滚动条（深色细条） ===== */
+  .scroll-slim::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scroll-slim::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+  .scroll-slim::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
+  .scroll-slim::-webkit-scrollbar-track { background: transparent; }
+  .scroll-slim { scrollbar-width: thin; scrollbar-color: #333 transparent; }
+
+  /* ===== 通用过渡与交互 ===== */
+  .u-trans { transition: all .15s ease; }
+  button:active { transform: scale(.98); }
+  :focus-visible { outline: 2px solid #525252; outline-offset: 2px; border-radius: 4px; }
+
+  /* 弹窗进场动画 */
+  @keyframes modalIn { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: none; } }
+  .modal-panel { animation: modalIn .18s ease; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  .fade-in { animation: fadeIn .15s ease; }
+
+  /* Toast 动画 */
+  @keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  .toast-item { animation: toastIn .2s ease; }
+
+  /* 批次 tab 横向滚动隐藏滚动条 */
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { scrollbar-width: none; }
+
+  /* 宫格图 hover 放大提示 */
+  .zoomable { cursor: zoom-in; }
+
+  /* 格子/镜头号点击定位后，脚本卡片保持选中态（不闪烁） */
+  .shot-selected { border-color: rgba(251,191,36,.55) !important; box-shadow: 0 0 0 1px rgba(251,191,36,.35), 0 0 18px rgba(251,191,36,.08); }
+
+  /* 宫格图上的透明点击热区 */
+  .cell-hit { transition: background .15s ease, box-shadow .15s ease; }
+  .cell-hit:hover, .cell-hit.cell-active { background: rgba(255,255,255,.10); box-shadow: inset 0 0 0 2px rgba(255,255,255,.55); }
+  .asset-all-warning { background: rgba(245,158,11,.07); box-shadow: inset 0 0 0 1px rgba(245,158,11,.65); }
+  .asset-new-highlight { border-color: rgba(96,165,250,.95) !important; box-shadow: 0 0 0 2px rgba(96,165,250,.35), 0 0 20px rgba(59,130,246,.22); }
+</style>
+</head>
+
+<body class="bg-ink-bg text-neutral-100 font-sans antialiased h-screen overflow-hidden flex flex-col">
+
+<!-- ================= 顶栏 ================= -->
+<header class="shrink-0 h-14 px-4 lg:px-6 flex items-center gap-3 border-b border-ink-line bg-ink-bg">
+  <!-- 标识 -->
+  <div class="flex items-center gap-2.5 shrink-0">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f5f5f5" stroke-width="1.6">
+      <rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/>
+      <rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/>
+    </svg>
+    <h1 class="text-[15px] font-semibold tracking-wide">分镜审核台</h1>
+  </div>
+  <!-- 项目名（可编辑） -->
+  <input id="projectName" type="text" spellcheck="false"
+    class="hidden sm:block bg-transparent text-[13px] text-ink-mute hover:text-neutral-300 focus:text-neutral-100 border border-transparent hover:border-ink-line focus:border-ink-line rounded-md px-2 py-1 w-44 u-trans"
+    title="点击修改项目名" />
+  <div id="aspectHeader" class="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-ink-line bg-ink-panel px-2.5 py-1 text-[11px] text-ink-mute" title="成片画幅在首次导入分镜脚本时确定，导入后锁定"></div>
+  <div class="flex-1"></div>
+  <!-- 全局操作 -->
+  <div class="flex items-center gap-2">
+    <button id="importScriptButton" data-act="open-import" class="u-trans h-8 px-3.5 rounded-full text-[13px] font-medium bg-neutral-100 text-ink-bg hover:bg-white disabled:opacity-35 disabled:cursor-not-allowed disabled:hover:bg-neutral-100">导入分镜脚本</button>
+    <button data-act="export-final" class="u-trans h-8 px-3.5 rounded-full text-[13px] border border-ink-line text-ink-mute hover:text-neutral-100 hover:border-neutral-500 hidden sm:inline-flex items-center" title="按标准文本格式导出全部批次的终版脚本">导出终版脚本</button>
+    <button data-act="export-data" class="u-trans h-8 px-3.5 rounded-full text-[13px] border border-ink-line text-ink-mute hover:text-neutral-100 hover:border-neutral-500 hidden sm:inline-flex items-center">导出备份</button>
+    <button data-act="export-logs" class="u-trans h-8 px-3.5 rounded-full text-[13px] border border-ink-line text-ink-mute hover:text-neutral-100 hover:border-neutral-500 hidden lg:inline-flex items-center" title="导出最近 500 条项目操作记录">导出操作记录</button>
+    <label class="u-trans h-8 px-3.5 rounded-full text-[13px] border border-ink-line text-ink-mute hover:text-neutral-100 hover:border-neutral-500 hidden sm:inline-flex items-center cursor-pointer">
+      恢复备份<input id="restoreFile" type="file" accept=".json" class="hidden" />
+    </label>
+    <button data-act="reset-all" class="u-trans h-8 px-3 rounded-full text-[13px] text-ink-faint hover:text-red-400" title="清空全部数据">清空</button>
+  </div>
+</header>
+
+<!-- ================= 批次导航条 ================= -->
+<nav class="shrink-0 border-b border-ink-line bg-ink-bg px-4 lg:px-6 py-2.5 flex items-center gap-3">
+  <div id="batchTabs" class="no-scrollbar flex items-center gap-2 overflow-x-auto flex-1"></div>
+  <span id="poolInfo" class="shrink-0 text-[12px] text-ink-faint whitespace-nowrap"></span>
+  <button id="deleteLatestBatchButton" data-act="delete-latest-batch" class="hidden u-trans shrink-0 h-8 px-3 rounded-full text-[12px] border border-red-400/20 text-red-300/70 hover:text-red-200 hover:border-red-400/50" title="仅可删除当前最新批次">删除本批</button>
+  <button data-act="open-newbatch" class="u-trans shrink-0 h-8 px-3.5 rounded-full text-[13px] border border-dashed border-neutral-600 text-ink-mute hover:text-neutral-100 hover:border-neutral-400 inline-flex items-center gap-1.5">
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 1v10M1 6h10"/></svg>
+    新建批次
+  </button>
+</nav>
+
+<!-- ================= 主工作区 ================= -->
+<main id="workspace" class="flex-1 min-h-0 flex">
+  <!-- 渲染入口：左（资产条+宫格图）/ 分隔条 / 右（分镜脚本），由 JS 填充 -->
+</main>
+
+<!-- ================= 底部审核操作区 ================= -->
+<footer id="reviewBar" class="shrink-0 border-t border-ink-line bg-ink-panel"></footer>
+
+<!-- ================= 弹窗：导入分镜脚本 ================= -->
+<div id="importModal" class="hidden fixed inset-0 z-40 flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-black/70 fade-in" data-act="close-modal" data-target="importModal"></div>
+  <div class="modal-panel relative w-full max-w-2xl bg-ink-panel border border-ink-line rounded-lg shadow-2xl">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-ink-line">
+      <h3 class="text-[15px] font-semibold">导入分镜脚本</h3>
+      <button data-act="close-modal" data-target="importModal" class="text-ink-faint hover:text-neutral-100 u-trans">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3l10 10M13 3L3 13"/></svg>
+      </button>
+    </div>
+    <div class="p-5 space-y-3">
+      <p class="text-[12.5px] leading-relaxed text-ink-mute">
+        优先支持<span class="text-neutral-300">标准分镜格式</span>（连续镜头共用上一级 <code class="font-mono text-[12px] text-neutral-300">【场景：…】</code>，每个镜头依次为 <code class="font-mono text-[12px] text-neutral-300">镜头N / 时长 / 机位·景别·运镜 / 构图 / 画面内容 / 台词·心声·音效 / 情绪目标</code>）；
+        也兼容 JSON 数组和「镜号 | 机位 | 场景 | 时长 | 画面 | 台词」行文本。导入后镜头进入「待分配」池，再由你手动划分批次。
+      </p>
+      <div class="rounded-md border border-ink-line bg-ink-bg/60 px-3 py-2.5 flex items-center gap-3">
+        <div class="min-w-0 flex-1">
+          <p class="text-[12.5px] font-medium text-neutral-200">最终视频画幅</p>
+          <p id="importAspectHint" class="text-[11px] text-ink-faint mt-0.5">首次导入时确认，导入成功后不可修改</p>
+        </div>
+        <div id="importAspectOptions" class="flex gap-2"></div>
+      </div>
+      <textarea id="importText" rows="10" spellcheck="false"
+        class="scroll-slim w-full bg-ink-bg border border-ink-line rounded-md p-3 text-[13px] font-mono leading-relaxed text-neutral-200 placeholder:text-ink-faint focus:border-neutral-500 resize-y u-trans"
+        placeholder='镜头10&#10;场景：地牢审讯室-深夜&#10;时长：1.2秒&#10;机位/景别/运镜：面部特写，极慢推近。&#10;构图：人物居中，浅景深。&#10;画面内容：沈昭宁死死盯着萧临渊……&#10;台词 / 心声 / 音效：无；急促喘息、链条轻响。&#10;情绪目标：压抑到爆发前一刻。'></textarea>
+      <div class="flex items-center justify-between">
+        <button data-act="fill-sample-import" class="text-[12.5px] text-ink-mute hover:text-neutral-100 underline underline-offset-4 u-trans">填入格式示例</button>
+        <div class="flex gap-2">
+          <button data-act="close-modal" data-target="importModal" class="u-trans h-9 px-4 rounded-full text-[13px] border border-ink-line text-ink-mute hover:text-neutral-100">取消</button>
+          <button data-act="submit-import" class="u-trans h-9 px-5 rounded-full text-[13px] font-medium bg-neutral-100 text-ink-bg hover:bg-white">解析并导入</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 弹窗：问题清单 ================= -->
+<div id="issueModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-black/75 fade-in" data-act="close-modal" data-target="issueModal"></div>
+  <div class="modal-panel relative w-full max-w-lg bg-ink-panel border border-red-400/30 rounded-lg shadow-2xl p-5">
+    <h3 id="issueTitle" class="text-[15px] font-semibold text-red-200"></h3>
+    <p id="issueIntro" class="text-[12.5px] text-ink-mute leading-relaxed mt-2"></p>
+    <div id="issueList" class="scroll-slim mt-3 max-h-64 overflow-y-auto space-y-2"></div>
+    <div class="flex justify-end mt-5">
+      <button data-act="close-modal" data-target="issueModal" class="u-trans h-9 px-5 rounded-full text-[13px] font-medium bg-neutral-100 text-ink-bg hover:bg-white">知道了</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 弹窗：新建批次 ================= -->
+<div id="newBatchModal" class="hidden fixed inset-0 z-40 flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-black/70 fade-in" data-act="close-modal" data-target="newBatchModal"></div>
+  <div class="modal-panel relative w-full max-w-6xl bg-ink-panel border border-ink-line rounded-lg shadow-2xl flex flex-col max-h-[88vh]">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-ink-line shrink-0">
+      <div>
+        <h3 class="text-[15px] font-semibold">新建批次 · 选择本批镜头</h3>
+        <p class="text-[12px] text-ink-faint mt-0.5">默认从前往后选择：最多 9 镜且累计不超过 15 秒；可手动调整，但需连续选择</p>
+      </div>
+      <button data-act="close-modal" data-target="newBatchModal" class="text-ink-faint hover:text-neutral-100 u-trans">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3l10 10M13 3L3 13"/></svg>
+      </button>
+    </div>
+    <div id="newBatchList" class="scroll-slim flex-1 min-h-0 overflow-y-auto px-5 py-3 grid grid-cols-1 md:grid-cols-2 gap-2 content-start"></div>
+    <div class="shrink-0 px-5 py-3 border-t border-ink-line space-y-3">
+      <label id="inheritAssetsRow" class="hidden items-center gap-3 rounded-md border border-ink-line bg-ink-bg/50 px-3 py-2 cursor-pointer">
+        <input id="inheritAssetsCheck" type="checkbox" class="accent-neutral-200" checked />
+        <span class="min-w-0 flex-1">
+          <span class="block text-[12.5px] text-neutral-200">沿用上一批参考资产</span>
+          <span id="inheritAssetsSummary" class="block text-[11px] text-ink-faint mt-0.5 truncate"></span>
+        </span>
+      </label>
+      <div class="flex items-center justify-between gap-3 flex-wrap">
+        <div class="flex items-center gap-3">
+          <button data-act="suggest-scene" class="text-[12.5px] text-ink-mute hover:text-neutral-100 underline underline-offset-4 u-trans">智能建议：同场景连续镜头</button>
+          <span id="newBatchInfo" class="text-[12.5px] text-ink-faint"></span>
+        </div>
+        <div class="flex gap-2">
+          <button data-act="close-modal" data-target="newBatchModal" class="u-trans h-9 px-4 rounded-full text-[13px] border border-ink-line text-ink-mute hover:text-neutral-100">取消</button>
+          <button data-act="submit-newbatch" class="u-trans h-9 px-5 rounded-full text-[13px] font-medium bg-neutral-100 text-ink-bg hover:bg-white">创建批次</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 弹窗：回填 Codex 结果 ================= -->
+<div id="fillbackModal" class="hidden fixed inset-0 z-40 flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-black/70 fade-in" data-act="close-modal" data-target="fillbackModal"></div>
+  <div class="modal-panel relative w-full max-w-2xl bg-ink-panel border border-ink-line rounded-lg shadow-2xl flex flex-col max-h-[88vh]">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-ink-line shrink-0">
+      <div>
+        <h3 class="text-[15px] font-semibold" id="fillbackTitle">回填 Codex 结果</h3>
+        <p class="text-[12px] text-ink-faint mt-0.5">把 Codex 返回的新版分镜脚本与宫格图贴回这里，将自动生成一个新版本</p>
+      </div>
+      <button data-act="close-modal" data-target="fillbackModal" class="text-ink-faint hover:text-neutral-100 u-trans">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3l10 10M13 3L3 13"/></svg>
+      </button>
+    </div>
+    <div class="scroll-slim flex-1 min-h-0 overflow-y-auto p-5 space-y-4">
+      <!-- 新版脚本 -->
+      <div>
+        <label class="block text-[13px] font-medium mb-1.5">新版分镜脚本 <span class="text-ink-faint font-normal">（支持标准文本或 JSON；留空则沿用上一版脚本）</span></label>
+        <textarea id="fillbackText" rows="7" spellcheck="false"
+          class="scroll-slim w-full bg-ink-bg border border-ink-line rounded-md p-3 text-[13px] font-mono leading-relaxed text-neutral-200 placeholder:text-ink-faint focus:border-neutral-500 resize-y u-trans"
+          placeholder='[{"no":1,"scene":"…","duration":"3s","desc":"…","dialogue":"…"}, …]'></textarea>
+      </div>
+      <!-- 新版宫格图 -->
+      <div>
+        <label class="block text-[13px] font-medium mb-1.5">新版宫格图 <span class="text-ink-faint font-normal">（将 Codex 生成的图保存后上传）</span></label>
+        <label id="dropzone" class="u-trans flex flex-col items-center justify-center gap-2 h-36 rounded-md border border-dashed border-neutral-600 hover:border-neutral-400 bg-ink-bg cursor-pointer">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8f8f8f" stroke-width="1.5"><path d="M12 16V4m0 0l-4 4m4-4l4 4M4 20h16"/></svg>
+          <span class="text-[13px] text-ink-mute">点击选择图片，或将图片拖入此处</span>
+          <input id="fillbackImage" type="file" accept="image/*" class="hidden" />
+        </label>
+        <div id="fillbackPreview" class="hidden mt-3 relative rounded-md overflow-hidden border border-ink-line">
+          <img id="fillbackPreviewImg" class="w-full max-h-56 object-contain bg-black/40" alt="宫格图预览" />
+          <button data-act="clear-fillback-image" class="absolute top-2 right-2 h-7 px-2.5 rounded-full bg-black/70 text-[12px] text-neutral-200 hover:bg-black u-trans">移除</button>
+        </div>
+      </div>
+      <!-- 宫格布局（用于画面点击热区对准） -->
+      <div class="flex items-center gap-2 text-[12.5px] text-ink-mute">
+        <span>这张宫格图的实际布局：</span>
+        <select id="fbCols" class="bg-ink-bg border border-ink-line rounded px-2 py-1 text-[12px] text-neutral-300">
+          <option value="">列 · 自动估算</option><option value="1">1 列</option><option value="2">2 列</option><option value="3">3 列</option><option value="4">4 列</option><option value="5">5 列</option>
+        </select>
+        <select id="fbRows" class="bg-ink-bg border border-ink-line rounded px-2 py-1 text-[12px] text-neutral-300">
+          <option value="">行 · 自动估算</option><option value="1">1 行</option><option value="2">2 行</option><option value="3">3 行</option><option value="4">4 行</option>
+        </select>
+        <span class="text-[11px] text-ink-faint">与图一致后，点击格子才能准确定位脚本</span>
+      </div>
+    </div>
+    <div class="shrink-0 px-5 py-4 border-t border-ink-line flex items-center justify-end gap-2">
+      <button data-act="close-modal" data-target="fillbackModal" class="u-trans h-9 px-4 rounded-full text-[13px] border border-ink-line text-ink-mute hover:text-neutral-100">取消</button>
+      <button data-act="submit-fillback" class="u-trans h-9 px-5 rounded-full text-[13px] font-medium bg-neutral-100 text-ink-bg hover:bg-white">生成新版本</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 弹窗：通用确认 ================= -->
+<div id="confirmModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-black/70 fade-in" data-act="close-modal" data-target="confirmModal"></div>
+  <div class="modal-panel relative w-full max-w-sm bg-ink-panel border border-ink-line rounded-lg shadow-2xl p-5">
+    <h3 id="confirmTitle" class="text-[15px] font-semibold"></h3>
+    <p id="confirmMsg" class="text-[13px] text-ink-mute leading-relaxed mt-2"></p>
+    <div class="flex justify-end gap-2 mt-5">
+      <button data-act="close-modal" data-target="confirmModal" class="u-trans h-9 px-4 rounded-full text-[13px] border border-ink-line text-ink-mute hover:text-neutral-100">取消</button>
+      <button id="confirmOk" class="u-trans h-9 px-5 rounded-full text-[13px] font-medium bg-neutral-100 text-ink-bg hover:bg-white">确认</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 图片灯箱 ================= -->
+<div id="lightbox" class="hidden fixed inset-0 z-50 bg-black/90 fade-in flex items-center justify-center p-4 cursor-zoom-out" data-act="close-lightbox">
+  <img id="lightboxImg" class="max-w-full max-h-full object-contain rounded" alt="大图预览" />
+  <button class="absolute top-4 right-4 text-neutral-400 hover:text-white u-trans" data-act="close-lightbox">
+    <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3l10 10M13 3L3 13"/></svg>
+  </button>
+</div>
+
+<!-- ================= 选中文本注释浮窗 ================= -->
+<div id="annotPop" class="hidden fixed z-[55] w-72 bg-ink-raise border border-ink-line rounded-lg shadow-2xl p-3 modal-panel">
+  <p class="text-[11px] text-ink-faint mb-1.5">为选中文字添加注释 <span id="annotPopShot" class="text-amber-300 font-medium"></span></p>
+  <p id="annotPopQuote" class="scroll-slim text-[12px] leading-relaxed text-neutral-300 bg-black/30 rounded px-2 py-1.5 mb-2 max-h-16 overflow-y-auto"></p>
+  <input id="annotPopInput" type="text" placeholder="问题说明，如：发型应为及肩黑发"
+    class="w-full bg-ink-bg border border-ink-line rounded-md px-2.5 py-2 text-[13px] text-neutral-100 placeholder:text-ink-faint focus:border-neutral-500 focus:outline-none u-trans" />
+  <div class="flex justify-end gap-2 mt-2.5">
+    <button data-act="annot-cancel" class="u-trans h-7 px-3 rounded-full text-[12px] text-ink-mute hover:text-neutral-100">取消</button>
+    <button data-act="annot-submit" class="u-trans h-7 px-3.5 rounded-full text-[12px] font-medium bg-amber-300 text-black hover:bg-amber-200">添加注释</button>
+  </div>
+</div>
+
+<!-- Toast 容器 -->
+<div id="toastBox" class="fixed top-5 left-1/2 -translate-x-1/2 z-[70] flex flex-col items-center gap-2 pointer-events-none"></div>
+
+<script>
+/* =====================================================================
+ * 分镜审核台 —— 本地服务版
+ * 数据流：导入脚本 → 待分配池 → 手动划分批次 → 创建独立 Codex 任务指令
+ *        → 插件自动回填新版本（保留人工回填）→ 循环审核 → 通过 → 下一批
+ * 持久化：本地服务负责元数据与图片落盘；file:// 模式保留旧 localStorage 兼容
+ * ===================================================================== */
+
+/* ---------- 全局状态 ---------- */
+const STORAGE_KEY = 'storyboard_review_v1';
+const SERVER_MODE = location.protocol === 'http:' || location.protocol === 'https:';
+const MAX_REFERENCE_ASSETS = 5;
+const MAX_CODEX_REFERENCE_BYTES = 4 * 1024 * 1024;
+const MAX_CODEX_REFERENCE_EDGE = 2048;
+const ISOLATION_REQUIREMENT = '调用 Codex 内置图片生成能力完成本次生图。仅参考本次提供的人物资产图、场景资产图、道具资产图和本次提示词文字。不得参考、复用、临摹或延续本任务中此前生成的任何分镜宫格图；此前宫格图仅代表待修结果，不属于本次参考输入。';
+
+let state = {
+  projectName: '未命名短剧项目',
+  shots: [],        // 镜头总池：{id, no, camera, composition, scene, duration, desc, dialogue, emotion}
+  batches: [],      // 批次：{id, name, status:'pending'|'reviewing'|'passed', draft:'', activeV:0, versions:[{id,label,image,shots,rawText,feedback,createdAt}]}
+  assets: [],       // 参考资产（人物图/场景图/道具图）：{id, name, type, img}
+  runs: [],         // Codex 生成任务：{id,batchId,status,createdAt,resultVersionId}
+  activeBatchId: null,
+  assetDefaultType: 'character',
+  assetsExpanded: false,
+  aspectRatio: '16:9',
+  split: 50,
+};
+
+let fillbackImageData = null;   // 回填弹窗中暂存的图片 dataURL
+let confirmCallback = null;     // 通用确认弹窗回调
+let assetWarningBatchId = null; // 全选参考资产时的临时高亮
+let pendingImportAspect = '16:9';
+let inheritPreviousAssets = true;
+const recentAssetIds = new Set();
+
+/* ---------- 工具函数 ---------- */
+const $ = (sel) => document.querySelector(sel);
+const uid = () => 'id_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const truncate = (s, n) => String(s ?? '').length > n ? String(s).slice(0, n) + '…' : String(s ?? '');
+
+let serverRevision = 0;
+let saveTimer = null;
+let saveChain = Promise.resolve();
+let pollTimer = null;
+
+function save() {
+  if (!SERVER_MODE) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+    catch (e) { toast('存储空间不足，请通过本地服务启动审核台', 'warn'); }
+    return;
+  }
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => enqueueServerSave(), 120);
+}
+
+function loadLegacy() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) { state = Object.assign(state, JSON.parse(raw)); return true; }
+  } catch (e) {}
+  return false;
+}
+
+function enqueueServerSave() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  saveChain = saveChain.then(async () => {
+    const response = await fetch('/api/project', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ state, baseRevision: serverRevision }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (response.status === 409) {
+      const fresh = await fetch('/api/bootstrap').then(r => r.json());
+      state = fresh.state;
+      serverRevision = Number(state.revision || 0);
+      renderAll();
+      toast('Codex 刚刚更新了项目，已载入最新版本', 'warn');
+      return;
+    }
+    if (!response.ok) {
+      const error = new Error(result.error || '保存失败');
+      if (Array.isArray(result.issues) && result.issues.length) {
+        showIssues('参考资产未通过校验', result.error, result.issues);
+        error.handled = true;
+      }
+      throw error;
+    }
+    serverRevision = Number(result.state.revision || serverRevision);
+    state.revision = serverRevision;
+  }).catch((error) => { if (!error.handled) toast(`保存失败：${error.message}`, 'err'); });
+  return saveChain;
+}
+
+async function flushSave() {
+  if (!SERVER_MODE) { save(); return; }
+  if (saveTimer) enqueueServerSave();
+  await saveChain;
+}
+
+async function refreshFromServer(silent = true) {
+  if (!SERVER_MODE || saveTimer) return;
+  const payload = await fetch('/api/bootstrap', { cache: 'no-store' }).then(r => r.json());
+  if (Number(payload.state.revision || 0) <= serverRevision) return;
+  const previousCompleted = new Set((state.runs || []).filter(r => r.status === 'completed').map(r => r.id));
+  state = payload.state;
+  serverRevision = Number(state.revision || 0);
+  renderAll();
+  const completed = (state.runs || []).find(r => r.status === 'completed' && !previousCompleted.has(r.id));
+  if (!silent && completed) toast('Codex 已回填新版本，开始审核');
+}
+
+/* Toast 提示 */
+function toast(msg, type = 'ok') {
+  const colors = { ok: 'border-neutral-600 text-neutral-100', warn: 'border-amber-500/50 text-amber-300', err: 'border-red-500/50 text-red-300' };
+  const el = document.createElement('div');
+  el.className = `toast-item pointer-events-auto px-4 py-2 rounded-full bg-ink-raise border text-[13px] shadow-xl ${colors[type] || colors.ok}`;
+  el.textContent = msg;
+  $('#toastBox').appendChild(el);
+  setTimeout(() => { el.style.transition = 'opacity .3s'; el.style.opacity = '0'; setTimeout(() => el.remove(), 320); }, 2400);
+}
+
+/* 复制到剪贴板（含降级方案） */
+async function copyText(text, okMsg) {
+  try { await navigator.clipboard.writeText(text); }
+  catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); ta.remove();
+  }
+  toast(okMsg || '已复制到剪贴板，去 Codex 对话框粘贴发送');
+}
+
+/* ---------- 解析：分镜脚本文本 → 镜头数组 ---------- */
+function normalizeAudioText(value) {
+  const emptyValues = /^(?:无|暂无|没有|空|无台词|无对白|无心声|无音效|无对白及音效|-+)$/;
+  return String(value ?? '')
+    .split(/\s*[\/／;；]\s*/)
+    .map(part => part.trim().replace(/^(?:台词|对白|心声|内心|音效)\s*[:：]\s*/, '').trim())
+    .filter(part => part && !emptyValues.test(part))
+    .join('；');
+}
+function normalizeShot(s, i) {
+  return {
+    id: uid(),
+    no: Number(s.no ?? s['镜号'] ?? i + 1),
+    camera: String(s.camera ?? s['机位'] ?? s['机位/景别/运镜'] ?? ''),
+    composition: String(s.composition ?? s['构图'] ?? ''),
+    scene: String(s.scene ?? s['场景'] ?? ''),          // 场景（可选，用于分批建议）
+    duration: String(s.duration ?? s['时长'] ?? ''),
+    desc: String(s.desc ?? s['画面内容'] ?? s['画面'] ?? s['描述'] ?? ''),
+    dialogue: normalizeAudioText(s.dialogue ?? s.audio ?? s['台词'] ?? s['台词 / 音效'] ?? s['台词/心声/音效'] ?? s['台词 / 心声 / 音效'] ?? ''),
+    emotion: String(s.emotion ?? s['情绪目标'] ?? ''),
+    ...(s.rawBlock ? { rawBlock: String(s.rawBlock) } : {}),
+  };
+}
+/* 标准分镜格式：镜头N + 机位/景别/运镜 + 画面内容 + 台词/音效（用户实际使用的格式） */
+function parseStandardFormat(t) {
+  if (!/^镜头\s*\d+\s*$/m.test(t)) return null;
+  const blocks = [];
+  let activeScene = '';
+  let activeBlock = null;
+  const sourceLines = t.split(/\r?\n/);
+  for (const [lineIndex, line] of sourceLines.entries()) {
+    const bracketHeading = line.trim().match(/^【场景(?:\s*\d+)?\s*[:：]\s*(.*?)】$/);
+    const plainHeading = line.trim().match(/^场景(?:\s*\d+)?\s*[:：]\s*(.*?)$/);
+    const nextContent = sourceLines.slice(lineIndex + 1).find(item => item.trim())?.trim() || '';
+    const sceneHeading = bracketHeading || (plainHeading && (!activeBlock || /^镜头\s*\d+\s*$/.test(nextContent)) ? plainHeading : null);
+    if (sceneHeading) {
+      if (activeBlock) blocks.push(activeBlock);
+      activeBlock = null;
+      activeScene = sceneHeading[1].trim();
+      continue;
+    }
+    if (/^镜头\s*\d+\s*$/.test(line.trim())) {
+      if (activeBlock) blocks.push(activeBlock);
+      activeBlock = { lines: [line.trim()], parentScene: activeScene };
+    } else if (activeBlock) activeBlock.lines.push(line);
+  }
+  if (activeBlock) blocks.push(activeBlock);
+  if (!blocks.length) return null;
+  const shots = [];
+  for (const [i, entry] of blocks.entries()) {
+    const block = entry.lines.join('\n').trim();
+    const lines = block.split(/\r?\n/);
+    const noM = lines.shift()?.match(/^镜头\s*(\d+)\s*$/);
+    if (!noM) continue;
+    const fields = { camera: '', composition: '', scene: '', duration: '', desc: '', dialogue: '', emotion: '' };
+    let active = null;
+    for (const line of lines) {
+      const m = line.match(/^(机位\s*[/／]\s*景别\s*[/／]\s*运镜|构图|场景|时长|画面内容|情绪目标|台词\s*[/／]\s*(?:心声\s*[/／]\s*)?音效)\s*[:：]\s*(.*)$/);
+      if (m) {
+        active = /^机位/.test(m[1]) ? 'camera' : m[1] === '构图' ? 'composition' : m[1] === '场景' ? 'scene' : m[1] === '时长' ? 'duration' : m[1] === '画面内容' ? 'desc' : m[1] === '情绪目标' ? 'emotion' : 'dialogue';
+        fields[active] = m[2].trim();
+      } else if (active) fields[active] += `${fields[active] ? '\n' : ''}${line}`;
+    }
+    shots.push(normalizeShot({ no: noM[1], ...fields, scene: fields.scene || entry.parentScene, rawBlock: block }, i));
+  }
+  return shots.length ? shots.sort((a, b) => a.no - b.no) : null;
+}
+function parseShots(text) {
+  const t = (text || '').trim();
+  if (!t) return null;
+  // 1) 标准分镜格式（镜头N / 机位·景别·运镜 / 画面内容 / 台词·音效）
+  const std = parseStandardFormat(t);
+  if (std) return std;
+  // 2) 尝试 JSON
+  try {
+    const j = JSON.parse(t);
+    const arr = Array.isArray(j) ? j : (Array.isArray(j.shots) ? j.shots : null);
+    if (arr && arr.length) return arr.map(normalizeShot).sort((a, b) => a.no - b.no);
+  } catch (e) {}
+  // 3) 行文本：镜号 | 机位 | 场景 | 时长 | 画面描述 | 台词（兼容旧五列）
+  const lines = t.split('\n').map(l => l.trim()).filter(Boolean);
+  const shots = [];
+  for (const [i, line] of lines.entries()) {
+    const parts = line.split(/\s*[|｜]\s*/);
+    if (parts.length >= 2) {
+      const shot = parts.length >= 6
+        ? { no: parts[0], camera: parts[1], scene: parts[2], duration: parts[3], desc: parts[4], dialogue: parts.slice(5).join('|') }
+        : { no: parts[0], scene: parts[1], duration: parts[2] || '', desc: parts[3] || '', dialogue: parts[4] || '' };
+      shots.push(normalizeShot(shot, i));
+    }
+  }
+  return shots.length ? shots.sort((a, b) => a.no - b.no) : null;
+}
+/* 序列化为标准分镜格式文本（用于提示词与终版导出，不再使用 JSON） */
+function shotsToText(shots, preserveRaw = true) {
+  let previousScene = null;
+  const blocks = [];
+  for (const s of shots) {
+    const scene = String(s.scene || '未标注场景').trim();
+    if (scene !== previousScene) {
+      blocks.push(`【场景：${scene}】`);
+      previousScene = scene;
+    }
+    blocks.push([
+      `镜头${s.no}`,
+      `时长：${s.duration || ''}`,
+      `机位/景别/运镜：${s.camera || ''}`,
+      `构图：${s.composition || ''}`,
+      `画面内容：${s.desc || ''}`,
+      `台词 / 心声 / 音效：${normalizeAudioText(s.dialogue)}`,
+      `情绪目标：${s.emotion || ''}`,
+    ].join('\n'));
+  }
+  return blocks.join('\n\n');
+}
+
+function upgradeStoredShot(source, index = 0) {
+  if (source?.rawBlock) {
+    const parsed = parseStandardFormat(source.rawBlock)?.[0];
+    if (parsed) return { ...source, ...parsed, scene: parsed.scene || source.scene || '', id: source.id || parsed.id };
+  }
+  return normalizeShot(source || {}, index);
+}
+
+function numberBatchShots(batch, shots) {
+  const ordered = [...(shots || [])].sort((a, b) => a.no - b.no);
+  const start = Number(batch.rangeStart || ordered[0]?.no || 1);
+  return ordered.map((shot, index) => ({ ...shot, no: start + index }));
+}
+
+function reconcilePassedBatchShots() {
+  for (const batch of state.batches || []) {
+    if (batch.status !== 'passed') continue;
+    const latest = batch.versions?.at(-1);
+    if (!latest?.shots?.length) continue;
+    latest.shots = numberBatchShots(batch, latest.shots);
+    latest.rawText = shotsToText(latest.shots, false);
+    batch.sourceCount = latest.shots.length;
+  }
+}
+
+function upgradeLoadedState() {
+  state.aspectRatio = state.aspectRatio === '9:16' ? '9:16' : '16:9';
+  state.assetDefaultType = ['character', 'scene', 'prop'].includes(state.assetDefaultType) ? state.assetDefaultType : 'character';
+  state.shots = (state.shots || []).map(upgradeStoredShot);
+  (state.batches || []).forEach(batch => {
+    const originalNos = batch.pendingNos?.length ? batch.pendingNos : batch.versions?.[0]?.shots?.map(s => s.no) || [];
+    batch.rangeStart = Number.isFinite(Number(batch.rangeStart)) ? Number(batch.rangeStart) : (Math.min(...originalNos) || 1);
+    batch.sourceCount = Number.isFinite(Number(batch.sourceCount)) && Number(batch.sourceCount) > 0 ? Number(batch.sourceCount) : Math.max(originalNos.length, 1);
+    (batch.versions || []).forEach(version => {
+      version.shots = (version.shots || []).map(upgradeStoredShot);
+      version.shots = numberBatchShots(batch, version.shots);
+      if (version.shots.length) version.rawText = shotsToText(version.shots, false);
+    });
+    const storedSourceShots = Array.isArray(batch.sourceShots) ? batch.sourceShots.map(upgradeStoredShot) : [];
+    const poolByNo = new Map(state.shots.map(shot => [shot.no, shot]));
+    batch.sourceShots = storedSourceShots.length
+      ? storedSourceShots
+      : originalNos.map(no => poolByNo.get(Number(no))).filter(Boolean).map(shot => ({ ...shot }));
+    if (!batch.sourceShots.length && batch.versions?.[0]?.shots?.length) {
+      batch.sourceShots = batch.versions[0].shots.map(shot => ({ ...shot }));
+    }
+    if (batch.sourceShots.length) batch.sourceShots = numberBatchShots(batch, batch.sourceShots);
+  });
+  reconcilePassedBatchShots();
+}
+
+/* ---------- 生成占位宫格图（SVG dataURL） ----------
+ * 一张完整的多宫格图：格子无缝拼接、每格左上角镜号角标、底部字幕条，
+ * 与 Codex 实际生成的一张多宫格图样式一致 */
+function genGridImage(shots, batchName, verLabel) {
+  const n = Math.max(shots.length, 1);
+  const cols = Math.ceil(Math.sqrt(n));
+  const rows = Math.ceil(n / cols);
+  const vertical = state.aspectRatio === '9:16';
+  const CW = vertical ? 270 : 480, CH = vertical ? 480 : 270, CAP = 40;
+  const W = cols * CW, H = rows * CH;
+  const tones = ['#26292e', '#2b2e33', '#23262b', '#2e3136'];
+  let cells = '';
+  shots.forEach((s, i) => {
+    const x = (i % cols) * CW;
+    const y = Math.floor(i / cols) * CH;
+    cells += `
+    <g>
+      <rect x="${x}" y="${y}" width="${CW}" height="${CH}" fill="${tones[i % tones.length]}" stroke="#000" stroke-width="2"/>
+      <text x="${x + CW / 2}" y="${y + CH / 2 - 10}" font-size="15" fill="#8a8f96" font-family="sans-serif" text-anchor="middle">${esc(truncate(s.desc, 16))}</text>
+      <text x="${x + CW / 2}" y="${y + CH / 2 + 16}" font-size="12" fill="#565b62" font-family="sans-serif" text-anchor="middle">占位画面 · 回填 Codex 生成图后替换</text>
+      <rect x="${x}" y="${y}" width="46" height="38" fill="#000" opacity="0.85"/>
+      <text x="${x + 23}" y="${y + 27}" font-size="20" fill="#fff" font-family="sans-serif" font-weight="700" text-anchor="middle">#${s.no}</text>
+      ${normalizeAudioText(s.dialogue) ? `<rect x="${x}" y="${y + CH - CAP}" width="${CW}" height="${CAP}" fill="#000" opacity="0.85"/>
+      <text x="${x + 12}" y="${y + CH - CAP + 25}" font-size="13" fill="#e8e8e8" font-family="sans-serif">${esc(truncate(normalizeAudioText(s.dialogue), vertical ? 18 : 34))}</text>` : ''}
+    </g>`;
+  });
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><rect width="${W}" height="${H}" fill="#000"/>${cells}</svg>`;
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+}
+/* 宫格布局估算：按镜头数推算行列（用于在整张宫格图上叠加点击热区） */
+function gridLayout(n) {
+  const cols = Math.ceil(Math.sqrt(Math.max(n, 1)));
+  return { cols, rows: Math.ceil(Math.max(n, 1) / cols) };
+}
+
+/* ---------- 派生数据 ---------- */
+const getBatch = (id) => state.batches.find(b => b.id === id);
+const activeBatch = () => getBatch(state.activeBatchId);
+const curVersion = (b) => b && b.versions.length ? b.versions[Math.min(b.activeV, b.versions.length - 1)] : null;
+const latestVersion = (b) => b && b.versions.length ? b.versions[b.versions.length - 1] : null;
+const latestRun = (b) => b ? (state.runs || []).filter(r => r.batchId === b.id).sort((a, z) => z.createdAt - a.createdAt)[0] : null;
+
+/* 某批当前占用的镜号集合（取最新版本；待生图批次取创建时勾选的镜号） */
+function batchShotNos(b) {
+  const v = latestVersion(b);
+  return v ? numberBatchShots(b, v.shots).map(s => s.no)
+    : (b.sourceShots?.length ? [...b.sourceShots].sort((a, z) => a.no - z.no).map(s => s.no) : (b.pendingNos || []));
+}
+function batchSourceShots(b) {
+  if (b?.sourceShots?.length) return numberBatchShots(b, b.sourceShots);
+  const numbers = new Set(b?.pendingNos || []);
+  return state.shots.filter(shot => numbers.has(shot.no)).sort((a, z) => a.no - z.no);
+}
+/* 待分配镜头按原始镜头身份判断，已创建批次的镜号变化不会改变其归属。 */
+function unassignedShots() {
+  const usedIds = new Set(state.batches.flatMap(batch => (batch.sourceShots || []).map(shot => shot.id)));
+  const legacyUsedNos = new Set(state.batches.filter(batch => !batch.sourceShots?.length).flatMap(batchShotNos));
+  return state.shots.filter(shot => !usedIds.has(shot.id) && !legacyUsedNos.has(shot.no)).sort((a, b) => a.no - b.no);
+}
+
+/* 新建下一批前，只重排待分配池；已经创建的批次保持原镜号。 */
+function alignUnassignedAfterLatestBatch() {
+  const pool = unassignedShots();
+  if (!pool.length) return false;
+  const latest = state.batches.at(-1);
+  const latestNos = latest ? batchShotNos(latest) : [];
+  const start = latestNos.length ? Math.max(...latestNos) + 1 : 1;
+  const nextNoById = new Map(pool.map((shot, index) => [shot.id, start + index]));
+  let changed = false;
+  state.shots = state.shots.map((shot) => {
+    const nextNo = nextNoById.get(shot.id);
+    if (nextNo === undefined || nextNo === shot.no) return shot;
+    changed = true;
+    return { ...shot, no: nextNo };
+  });
+  return changed;
+}
+/* 镜号范围文案 */
+function rangeText(shots) {
+  if (!shots.length) return '0 个镜头';
+  const nos = shots.map(s => s.no);
+  return `${shots.length} 个镜头 · #${Math.min(...nos)}–${Math.max(...nos)}`;
+}
+
+/* ---------- 提示词模板 ---------- */
+/* 本批勾选的参考资产说明段落（按人物/场景/道具分组列出） */
+function assetSection(b) {
+  const ids = b.assetIds || [];
+  const picked = state.assets.filter(a => ids.includes(a.id));
+  if (!picked.length) return '';
+  const chars = picked.filter(a => (a.type || 'character') === 'character').map(a => a.name);
+  const scenes = picked.filter(a => a.type === 'scene').map(a => a.name);
+  const props = picked.filter(a => a.type === 'prop').map(a => a.name);
+  const parts = [];
+  if (chars.length) parts.push(`人物图：${chars.join('、')}`);
+  if (scenes.length) parts.push(`场景图：${scenes.join('、')}`);
+  if (props.length) parts.push(`道具图：${props.join('、')}`);
+  return `\n【参考资产 · 共 ${picked.length} 张】\n${parts.join('；')}。\n请只使用本批已选参考图，人物身份、场景环境和关键道具必须分别与对应资产保持一致。\n`;
+}
+/* 宫格行列说明：有手动指定用手动值，否则按镜头数估算 */
+function layoutLine(n, cols, rows) {
+  const c = cols || gridLayout(n).cols;
+  const r = rows || gridLayout(n).rows;
+  return `宫格严格按 ${c} 列 × ${r} 行排列，按镜号从左到右、从上到下填充`;
+}
+function aspectLine() {
+  const ratio = state.aspectRatio === '9:16' ? '9:16 竖版' : '16:9 横版';
+  return `每一个画格的画面比例必须严格为 ${ratio}，不得生成或裁切成 1:1；整张宫格画布应按当前行列拼接这些等比例画格`;
+}
+/* 审核意见拼装：定位注释（选中文本添加的）逐条列出 + 手写补充 */
+function composeFeedback(b) {
+  const lines = (b.annotations || []).map(a => `【镜头${a.shotNo}】原文「${a.quote}」存在问题：${a.note}`);
+  const draft = (b.draft || '').trim();
+  return [...lines, ...(draft ? [draft] : [])].join('\n');
+}
+/* 首版生图提示词：新建批次后，让 Codex 生成第一张宫格图 */
+function buildFirstPrompt(b, shots) {
+  const selected = new Set(b.assetIds || []);
+  const picked = state.assets.filter(a => selected.has(a.id)).map(a => `${a.type === 'character' ? '人物' : a.type === 'prop' ? '道具' : '场景'}：${a.name}`).join('；') || '无';
+  return `分镜脚本
+项目：${state.projectName}
+批次：${b.name}
+宫格布局：${layoutLine(shots.length, b.gridCols, b.gridRows)}，全部镜头合并在一张图中。
+单格画幅：${state.aspectRatio === '9:16' ? '9:16竖版' : '16:9横版'}。
+画格标注：左上角只显示“#镜号”。底部只原样显示本镜实际存在的台词、心声或音效文案；缺失项完全省略，不显示字段标签，不补“无”，不输出“无/无/”或空分隔符；本镜完全无声音时不显示底栏文字。
+本批参考资产：${picked}。
+
+${shotsToText(shots, false)}`;
+}
+/* 人工降级：这份指令只产出新版脚本；新版脚本再单独作为生图输入 */
+function buildRevisionPrompt(b, v, feedback) {
+  const shots = v.shots;
+  const script = v.rawText && !shots.length ? v.rawText : shotsToText(shots);
+  return `【分镜脚本返修】
+
+当前分镜脚本（${v.label}）
+${script}
+
+审核意见
+${feedback}
+
+请把意见逐条落实到分镜脚本的对应字段，只做必要修改。未提及内容保持原文。允许按审核意见在本批范围内合并或新增镜头；按画面顺序输出即可，审核台会从本批起始镜号自动连续编号。连续镜头共用上一级“【场景：…】”，镜头内保持“时长 / 机位/景别/运镜 / 构图 / 画面内容 / 台词/心声/音效 / 情绪目标”的标准文本结构。
+
+只返回修改后的完整分镜脚本，不生成图片，不补充任何生图提示词，也不做生成后检查。`;
+}
+
+/* ---------- 示例数据 ---------- */
+function loadDemoData() {
+  const mk = (no, scene, duration, desc, dialogue) => ({ id: uid(), no, scene, duration, desc, dialogue });
+  const pool = [
+    mk(1,  '咖啡馆-日', '3s', '中景，林晚坐在靠窗位置，指尖无意识地摩挲杯壁，眼神飘向窗外。', '林晚（独白）：三年了，这家店的拿铁还是没换过配方。'),
+    mk(2,  '咖啡馆-日', '2s', '特写，一只骨节分明的手把一份文件推到桌面中央。', ''),
+    mk(3,  '咖啡馆-日', '3s', '近景，林晚低头看清文件标题，瞳孔微缩，呼吸一滞。', '林晚：……股权转移协议？'),
+    mk(4,  '咖啡馆-日', '2s', '中景，对面的陆则慢条斯理地搅动着咖啡，没有抬头。', '陆则：签了它，你母亲的手术费，我来出。'),
+    mk(5,  '咖啡馆-日', '3s', '特写，林晚攥紧杯柄，指节泛白，杯中的拉花微微晃动。', ''),
+    mk(6,  '街道-夜', '3s', '远景，雨夜霓虹，林晚没有打伞，独自走在湿漉漉的街道上。', ''),
+    mk(7,  '街道-夜', '2s', '近景，雨水顺着她的脸颊滑落，分不清是雨还是泪。', ''),
+    mk(8,  '街道-夜', '3s', '中景，一辆黑色轿车缓缓停在路边，车窗降下一半。', '陆则：上车。雨很大。'),
+    mk(9,  '街道-夜', '2s', '近景，林晚停下脚步，隔着雨幕与车内的人对视。', '林晚：陆总这是在可怜我？'),
+    mk(10, '公寓-夜', '3s', '中景，狭小公寓，林晚推门而入，疲惫地靠在门板上。', ''),
+    mk(11, '公寓-夜', '2s', '特写，手机屏幕亮起，医院缴费提醒的短信弹出。', ''),
+    mk(12, '公寓-夜', '3s', '近景，林晚滑坐在地，把脸埋进膝盖，肩膀微微颤抖。', '林晚（哽咽）：妈，再等等我……'),
+    mk(13, '天台-夜', '3s', '远景，城市天台的边缘，风很大，吹动林晚的外套。', ''),
+    mk(14, '天台-夜', '2s', '中景，陆则从天台门口走出，两人在风声中对峙。', '陆则：合同还作数。想清楚再拒绝我。'),
+  ];
+  state.shots = pool;
+  // 批次一（已通过，含两个版本）
+  const b1shots = pool.slice(0, 4).map(s => ({ ...s, id: uid() }));
+  const b1 = {
+    id: uid(), name: '第1批', status: 'passed', draft: '', activeV: 1,
+    versions: [
+      { id: uid(), label: 'v1', image: null, shots: b1shots, rawText: '', feedback: '', createdAt: Date.now() - 7200e3 },
+      { id: uid(), label: 'v2', image: genGridImage(b1shots, '第1批', 'v2'), shots: b1shots, rawText: '',
+        feedback: '镜头3情绪不到位，特写改为瞳孔微缩；镜头4陆则不要抬头。', createdAt: Date.now() - 3600e3 },
+    ],
+  };
+  // 批次二（审核中）
+  const b2shots = pool.slice(4, 9).map(s => ({ ...s, id: uid() }));
+  const b2 = {
+    id: uid(), name: '第2批', status: 'reviewing', draft: '', activeV: 0,
+    versions: [
+      { id: uid(), label: 'v1', image: genGridImage(b2shots, '第2批', 'v1'), shots: b2shots, rawText: '', feedback: '', createdAt: Date.now() - 1800e3 },
+    ],
+  };
+  state.batches = [b1, b2];
+  state.activeBatchId = b2.id;
+  state.projectName = '《雨夜续约》第一集';
+  // 参考资产示例（占位图，实际使用时拖入 Codex 生成的人物图/场景图）
+  const mkAsset = (name, tint, type) => ({ id: uid(), name, type, img: genAssetImage(name, tint) });
+  const a1 = mkAsset('人物·林晚', '#2d3a4a', 'character');
+  const a2 = mkAsset('场景·街道夜', '#3a2d3f', 'scene');
+  state.assets = [a1, a2];
+  b2.assetIds = [a1.id, a2.id];   // 第2批勾选了这两张资产
+  b2.annotations = [];            // 定位注释列表
+}
+/* 生成资产占位图（SVG dataURL） */
+function genAssetImage(name, tint) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240">
+    <rect width="240" height="240" fill="${tint}"/>
+    <circle cx="120" cy="96" r="34" fill="#f5f5f5" opacity="0.18"/>
+    <rect x="72" y="140" width="96" height="60" rx="30" fill="#f5f5f5" opacity="0.12"/>
+    <text x="120" y="226" font-size="15" fill="#f5f5f5" opacity="0.75" font-family="sans-serif" text-anchor="middle">${esc(name)}</text>
+  </svg>`;
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+}
+</script>
+<script>
+/* =====================================================================
+ * 渲染层
+ * ===================================================================== */
+
+/* ---------- 顶栏 ---------- */
+function renderHeader() {
+  $('#projectName').value = state.projectName;
+  const ratio = state.aspectRatio === '9:16' ? '9:16 · 竖版' : '16:9 · 横版';
+  $('#aspectHeader').innerHTML = `<span class="text-ink-faint">成片画幅</span><span class="text-neutral-200 font-medium">${ratio}</span>${state.shots.length ? '<span class="text-ink-faint">· 已锁定</span>' : ''}`;
+  const importButton = $('#importScriptButton');
+  const importLocked = state.shots.length > 0 || state.batches.length > 0;
+  importButton.disabled = importLocked;
+  importButton.title = importLocked ? '当前项目已有分镜数据，请先清空后再导入' : '导入分镜脚本';
+}
+
+function renderImportAspect() {
+  const locked = state.shots.length > 0;
+  pendingImportAspect = locked ? (state.aspectRatio === '9:16' ? '9:16' : '16:9') : pendingImportAspect;
+  $('#importAspectHint').textContent = locked ? '当前项目已经导入脚本，画幅已锁定' : '首次导入时确认，导入成功后不可修改';
+  $('#importAspectOptions').innerHTML = ['16:9', '9:16'].map(ratio => `
+    <button type="button" data-act="set-import-aspect" data-ratio="${ratio}" ${locked ? 'disabled' : ''}
+      class="h-8 px-3 rounded-full border text-[12px] u-trans disabled:cursor-not-allowed
+      ${pendingImportAspect === ratio ? 'border-neutral-200 bg-neutral-100 text-ink-bg font-medium' : 'border-ink-line text-ink-mute hover:border-neutral-500'}
+      ${locked && pendingImportAspect !== ratio ? 'opacity-30' : ''}">${ratio}</button>`).join('');
+}
+
+/* ---------- 批次导航条 ---------- */
+const STATUS_META = {
+  pending:   { dot: '#60a5fa', text: '待生图' },
+  reviewing: { dot: '#fb923c', text: '审核中' },
+  passed:    { dot: '#4ade80', text: '已通过' },
+};
+function renderBatchTabs() {
+  const box = $('#batchTabs');
+  if (!state.batches.length) { box.innerHTML = '<span class="text-[13px] text-ink-faint">还没有批次，导入脚本后点击右侧「新建批次」</span>'; }
+  else {
+    box.innerHTML = state.batches.map(b => {
+      const isActive = b.id === state.activeBatchId;
+      const meta = STATUS_META[b.status];
+      const n = batchShotNos(b).length;
+      return `
+      <button data-act="switch-batch" data-id="${b.id}"
+        class="u-trans shrink-0 h-9 pl-3 pr-3 rounded-full inline-flex items-center gap-2 text-[13px] border
+        ${isActive ? 'bg-neutral-100 text-ink-bg border-transparent font-medium' : 'border-ink-line text-ink-mute hover:text-neutral-100 hover:border-neutral-500'}">
+        <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:${meta.dot}"></span>
+        ${esc(b.name)}
+        <span class="${isActive ? 'text-neutral-500' : 'text-ink-faint'}">${n} 镜头</span>
+        ${b.status === 'passed' ? '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="' + (isActive ? '#16a34a' : '#4ade80') + '" stroke-width="2"><path d="M3 8.5l3.2 3L13 5"/></svg>' : ''}
+      </button>`;
+    }).join('');
+  }
+  const pool = unassignedShots();
+  $('#poolInfo').textContent = pool.length ? `待分配 ${pool.length} 个镜头` : '镜头已全部分配';
+  const deleteButton = $('#deleteLatestBatchButton');
+  const latest = state.batches.at(-1);
+  deleteButton.classList.toggle('hidden', !latest || state.activeBatchId !== latest.id);
+}
+
+/* 单个资产卡片：人物/场景/道具类型、本批勾选、删除、点名称重命名 */
+let editingAssetId = null;   // 正在重命名的资产 id
+const ASSET_TYPE_META = {
+  character: { short: '人', label: '人物', color: 'bg-sky-300' },
+  scene: { short: '场', label: '场景', color: 'bg-emerald-300' },
+  prop: { short: '道', label: '道具', color: 'bg-amber-300' },
+};
+function assetCardHtml(a, b) {
+  const sel = (b.assetIds || []).includes(a.id);
+  const atLimit = !sel && (b.assetIds || []).length >= MAX_REFERENCE_ASSETS;
+  const type = ASSET_TYPE_META[a.type] ? a.type : 'character';
+  const typeMeta = ASSET_TYPE_META[type];
+  const editing = editingAssetId === a.id;
+  return `
+  <div class="group relative w-14 text-center shrink-0">
+    <div class="relative w-14 h-14">
+      <img src="${a.img}" data-act="view-image" data-src="${a.img}" alt="${esc(a.name)}"
+        class="zoomable w-14 h-14 object-cover rounded-md border u-trans ${recentAssetIds.has(a.id) ? 'asset-new-highlight' : (sel ? 'border-neutral-200 ring-2 ring-neutral-100/40' : 'border-ink-line group-hover:border-neutral-500')}" />
+      <button data-act="toggle-asset" data-id="${a.id}" aria-disabled="${atLimit}" title="${sel ? '本批不使用' : (atLimit ? '本批已达到 5 张参考图上限' : '本批使用')}"
+        class="absolute top-1 left-1 w-[18px] h-[18px] rounded-full border u-trans inline-flex items-center justify-center
+        ${sel ? 'bg-neutral-100 border-transparent' : (atLimit ? 'bg-black/70 border-amber-400/70 opacity-100 cursor-not-allowed' : 'bg-black/60 border-neutral-500 opacity-0 group-hover:opacity-100 hover:border-neutral-200')}">
+        ${sel ? '<svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="#121212" stroke-width="2.4"><path d="M3 8.5l3.2 3L13 5"/></svg>' : ''}
+      </button>
+      <button data-act="toggle-asset-type" data-id="${a.id}" title="点击切换：人物图 / 场景图 / 道具图"
+        class="absolute bottom-1 left-1 h-[16px] min-w-[16px] px-1 rounded text-[9.5px] font-medium leading-none inline-flex items-center justify-center u-trans hover:scale-110
+        ${typeMeta.color} text-black">${typeMeta.short}</button>
+      <button data-act="del-asset" data-id="${a.id}" title="删除"
+        class="absolute -top-1.5 -right-1.5 w-[18px] h-[18px] rounded-full bg-black/80 border border-ink-line text-[10px] text-neutral-300 opacity-0 group-hover:opacity-100 u-trans">×</button>
+    </div>
+    ${editing
+      ? `<input id="assetRenameInput" data-id="${a.id}" value="${esc(a.name)}" maxlength="30"
+          class="w-14 mt-0.5 bg-black/60 border border-neutral-400 rounded px-0.5 py-px text-[10.5px] text-neutral-200 text-center outline-none" />`
+      : `<p data-act="rename-asset" data-id="${a.id}" title="点击重命名（与剧本角色 / 场景名对齐）"
+          class="text-[10.5px] truncate mt-0.5 cursor-text u-trans hover:text-neutral-200 ${sel ? 'text-neutral-300' : 'text-ink-faint'}">${esc(a.name)}</p>`}
+  </div>`;
+}
+
+function shotFieldHtml(label, value, tone = 'text-neutral-200') {
+  if (!String(value || '').trim()) return '';
+  return `<div class="grid grid-cols-[72px_minmax(0,1fr)] gap-2 border-t border-ink-line/70 pt-2 first:border-t-0 first:pt-0">
+    <span class="text-[10.5px] leading-relaxed text-ink-faint">${label}</span>
+    <p class="shot-text select-text whitespace-pre-wrap text-[12.5px] leading-relaxed ${tone}">${esc(value)}</p>
+  </div>`;
+}
+
+function shotListHtml(shots, batch, editable) {
+  let previousScene = null;
+  return shots.map(s => {
+    const scene = String(s.scene || '未标注场景').trim();
+    const sceneHeading = scene !== previousScene
+      ? `<div class="mb-2 px-2 py-1.5 rounded-sm bg-emerald-400/[.04] border-y border-ink-line text-[11.5px] text-emerald-200/80">场景：${esc(scene)}</div>`
+      : '';
+    previousScene = scene;
+    const anns = (batch.annotations || []).filter(a => a.shotNo === s.no);
+    return `${sceneHeading}
+      <article id="shot-${s.no}" class="shot-card group rounded-md border border-ink-line bg-ink-raise p-3.5 u-trans hover:border-neutral-600 ${batch.status === 'passed' ? 'opacity-70' : ''}" data-no="${s.no}">
+        <div class="flex items-center gap-2 mb-1.5 flex-wrap">
+          <button data-act="select-shot" data-no="${s.no}" title="在宫格图中定位"
+            class="font-mono text-[11px] px-1.5 py-0.5 rounded bg-black/40 text-neutral-300 border border-ink-line hover:border-neutral-400 hover:text-white u-trans cursor-pointer">#${s.no}</button>
+          ${s.duration ? `<span class="text-[11px] text-ink-faint">${esc(s.duration)}</span>` : ''}
+          ${anns.length ? `<span class="text-[10.5px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300">${anns.length} 条注释</span>` : ''}
+          <div class="flex-1"></div>
+          ${editable ? `<button data-act="annotate-shot" data-no="${s.no}" class="text-[11px] text-ink-faint hover:text-neutral-100 u-trans opacity-0 group-hover:opacity-100">＋ 批注</button>` : ''}
+        </div>
+        <div class="space-y-2">
+          ${shotFieldHtml('机位·景别·运镜', s.camera)}
+          ${shotFieldHtml('构图', s.composition)}
+          ${shotFieldHtml('画面内容', s.desc)}
+          ${shotFieldHtml('台词·心声·音效', normalizeAudioText(s.dialogue), 'text-ink-mute')}
+          ${shotFieldHtml('情绪目标', s.emotion, 'text-amber-200/80')}
+        </div>
+        ${anns.length ? `<div class="mt-2 space-y-1">${anns.map(a => `
+          <div class="flex items-start gap-1.5 text-[12px] bg-amber-500/10 border border-amber-500/20 rounded px-2 py-1.5">
+            <span class="min-w-0 leading-relaxed"><span class="text-amber-300/70">「${esc(truncate(a.quote, 20))}」</span><span class="text-amber-200/90"> ${esc(a.note)}</span></span>
+            ${editable ? `<button data-act="del-annotation" data-id="${a.id}" class="ml-auto shrink-0 text-amber-200/50 hover:text-amber-100 u-trans">×</button>` : ''}
+          </div>`).join('')}</div>` : ''}
+      </article>`;
+  }).join('');
+}
+
+/* ---------- 主工作区 ---------- */
+function renderWorkspace() {
+  const main = $('#workspace');
+  const b = activeBatch();
+
+  // 空状态：无批次
+  if (!b) {
+    const hasScript = state.shots.length > 0;
+    main.innerHTML = `
+    <section class="flex-1 flex flex-col items-center justify-center gap-5 py-24 text-center px-6">
+      <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#3a3a3a" stroke-width="1.4">
+        <rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/>
+        <rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/>
+      </svg>
+      <div>
+        <p class="text-[15px] font-medium text-neutral-300">${hasScript ? '分镜脚本已导入，创建第一批开始审核' : '开始你的第一批分镜审核'}</p>
+        <p class="text-[13px] text-ink-faint mt-1.5 leading-relaxed">${hasScript ? '当前项目不能重复导入脚本；如需更换，请先清空当前项目。' : '导入分镜脚本 → 手动划分批次 → 创建 Codex 任务指令<br/>→ Codex 自动回填结果，逐版审核直到通过'}</p>
+      </div>
+      <div class="flex gap-3">
+        ${hasScript
+          ? '<button data-act="open-newbatch" class="u-trans h-10 px-6 rounded-full text-[14px] font-medium bg-neutral-100 text-ink-bg hover:bg-white">新建批次</button>'
+          : '<button data-act="open-import" class="u-trans h-10 px-6 rounded-full text-[14px] font-medium bg-neutral-100 text-ink-bg hover:bg-white">导入分镜脚本</button><button data-act="load-demo" class="u-trans h-10 px-6 rounded-full text-[14px] border border-ink-line text-ink-mute hover:text-neutral-100 hover:border-neutral-500">先看看示例</button>'}
+      </div>
+    </section>`;
+    renderReviewBar();
+    return;
+  }
+
+  const v = curVersion(b);
+  const isLatest = !v || b.activeV === b.versions.length - 1;
+  const editable = b.status === 'reviewing' && isLatest;
+  const meta = STATUS_META[b.status];
+  // 展示用镜头：有版本取当前版本；新建批次（待生图）直接从镜头总池预填
+  const dispShots = v && v.shots.length ? numberBatchShots(b, v.shots)
+    : batchSourceShots(b);
+
+  const gl = v && v.shots.length ? gridLayout(v.shots.length) : null;
+  // 宫格行列：版本上有手动指定则用手动值，否则按镜头数估算
+  const gCols = (v && v.gridCols) || (gl && gl.cols) || 1;
+  const gRows = (v && v.gridRows) || (gl && gl.rows) || 1;
+  const split = state.split || 55;
+  // 参考资产分组：按类型分组，组内「本批已勾选」的排在最前
+  const assetGroups = ['character', 'scene', 'prop'].map(type => ({
+    type,
+    list: state.assets
+      .filter(a => (a.type || 'character') === type)
+      .sort((x, y) => Number((b.assetIds || []).includes(y.id)) - Number((b.assetIds || []).includes(x.id))),
+  })).filter(g => g.list.length);
+  const uploadTile = `
+    <label class="shrink-0 w-14 h-14 rounded-md border border-dashed border-neutral-700 hover:border-neutral-400 flex flex-col items-center justify-center gap-0.5 cursor-pointer u-trans text-ink-faint hover:text-neutral-300">
+      <svg width="14" height="14" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M6 1v10M1 6h10"/></svg>
+      <span class="text-[9.5px]">上传/拖入</span>
+      <input id="assetInput" type="file" accept="image/*" multiple class="hidden" />
+    </label>`;
+  main.innerHTML = `
+  <!-- 左右结构：左（参考资产 + 宫格图）/ 右（分镜脚本），中间分隔条可拖拽调比例，同屏对照 -->
+  <section id="leftPane" class="min-w-0 min-h-0 flex flex-col" style="flex:0 0 ${split}%">
+    <!-- 参考资产面板：人物 / 场景 / 道具分组；勾选 = 本批生图要参考 -->
+    <div id="assetStrip" class="shrink-0 border-b border-ink-line u-trans ${assetWarningBatchId === b.id ? 'asset-all-warning' : ''}">
+      <div class="px-4 lg:px-5 pt-2 pb-1 flex items-center gap-x-1.5 gap-y-1 flex-wrap">
+        <span class="text-[12px] font-medium text-ink-mute tracking-wide whitespace-nowrap">参考资产</span>
+        <span class="relative group/tip inline-flex items-center">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" class="text-ink-faint hover:text-neutral-300 cursor-help u-trans"><circle cx="8" cy="8" r="6.5"/><path d="M8 7.2v3.8"/><circle cx="8" cy="4.7" r="0.9" fill="currentColor" stroke="none"/></svg>
+          <span class="pointer-events-none absolute left-0 top-full mt-1.5 z-40 hidden group-hover/tip:block w-64 rounded-md border border-ink-line bg-ink-raise px-3 py-2 text-[11px] leading-relaxed text-ink-mute shadow-xl shadow-black/40">可把 Codex 里生成的图直接拖进来；先选择人物、场景或道具类型。新上传资产默认用于本批；创建任务前若全部资产都被选中，系统会展开并提醒你复核。</span>
+        </span>
+        <span class="ml-auto text-[11px] whitespace-nowrap ${(b.assetIds || []).length >= MAX_REFERENCE_ASSETS ? 'text-amber-300' : 'text-ink-faint'}">${(b.assetIds || []).length ? `本批已选 ${b.assetIds.length}/${MAX_REFERENCE_ASSETS} 张` : `本批未勾选 · 上限 ${MAX_REFERENCE_ASSETS} 张`}</span>
+        <!-- 新拖入/上传图片的默认归组：人物 / 场景 / 道具 -->
+        <span class="inline-flex items-center gap-1 text-[11px] text-ink-faint whitespace-nowrap" title="之后拖入或上传的图自动归到所选分组；已有图点卡片类型标签切换">
+          新图归为
+          ${[['character', '人物'], ['scene', '场景'], ['prop', '道具']].map(([t, label]) => `
+          <button data-act="set-asset-default-type" data-type="${t}"
+            class="px-1.5 py-px rounded-full border u-trans text-[10.5px]
+            ${(state.assetDefaultType || 'character') === t ? 'border-neutral-300 text-neutral-200 bg-white/10' : 'border-ink-line text-ink-faint hover:text-neutral-300'}">${label}</button>`).join('')}
+        </span>
+        ${state.assets.length > 0 ? `
+        <button data-act="toggle-assets-expand" class="u-trans text-[11px] text-ink-faint hover:text-neutral-200 inline-flex items-center gap-1 whitespace-nowrap">
+          ${state.assetsExpanded ? '收起' : `展开全部（${state.assets.length}）`}
+          <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" class="u-trans ${state.assetsExpanded ? 'rotate-180' : ''}"><path d="M2 4l4 4 4-4"/></svg>
+        </button>` : ''}
+      </div>
+      ${state.assetsExpanded ? `
+      <!-- 展开态：分组纵向铺开，超出可滚动 -->
+      <div class="scroll-slim px-4 lg:px-5 pb-2.5 max-h-[38vh] overflow-y-auto">
+        ${assetGroups.map(g => `
+        <div class="mb-1.5">
+          <p class="text-[10.5px] text-ink-faint tracking-wider py-1">${ASSET_TYPE_META[g.type].label}图 · ${g.list.length}</p>
+          <div class="flex flex-wrap gap-2">${g.list.map(a => assetCardHtml(a, b)).join('')}</div>
+        </div>`).join('')}
+        <div class="pt-1">${uploadTile}</div>
+      </div>
+      ` : `
+      <!-- 收起态：三类资产同排可见，超出截断（点「展开全部」查看） -->
+      <div class="px-4 lg:px-5 pb-2 flex items-start gap-x-4 overflow-hidden">
+        ${assetGroups.map(g => `
+        <div class="flex items-start gap-1.5 min-w-0">
+          <span class="text-[10px] leading-4 text-ink-faint pt-0.5 select-none shrink-0">${ASSET_TYPE_META[g.type].label}</span>
+          <div class="flex gap-2 overflow-hidden">${g.list.map(a => assetCardHtml(a, b)).join('')}</div>
+        </div>`).join('')}
+        ${uploadTile}
+      </div>
+      `}
+    </div>
+
+    <!-- 宫格图查看器（一整张多宫格图；点击格子可定位到右侧对应脚本） -->
+    <div class="flex-1 min-h-0 relative bg-black/30 flex flex-col">
+      <div class="shrink-0 flex items-center gap-2 px-4 lg:px-5 py-2 border-b border-ink-line/60">
+        <span class="text-[12px] font-medium text-ink-mute tracking-wide">分镜宫格图</span>
+        <span class="inline-flex items-center gap-1.5 text-[11px] text-ink-faint"><span class="w-1.5 h-1.5 rounded-full" style="background:${meta.dot}"></span>${meta.text}</span>
+        ${v && v.shots.length ? '<span class="text-[11px] text-ink-faint hidden md:inline">· 点击画面格子可定位到右侧对应脚本</span>' : ''}
+        <div class="flex-1"></div>
+        ${v && v.shots.length ? `
+        <label class="hidden sm:inline-flex items-center gap-1 text-[11px] text-ink-faint" title="与实际宫格图的行列保持一致，点击热区才能对准">
+          布局
+          <select id="gridColsSel" ${editable ? '' : 'disabled'} class="bg-ink-bg border border-ink-line rounded px-1 py-0.5 text-[11px] text-neutral-300 u-trans hover:border-neutral-500 disabled:opacity-40">
+            <option value="">列·估</option>${[1,2,3,4,5].map(c => `<option value="${c}" ${v.gridCols === c ? 'selected' : ''}>${c} 列</option>`).join('')}
+          </select>
+          <select id="gridRowsSel" ${editable ? '' : 'disabled'} class="bg-ink-bg border border-ink-line rounded px-1 py-0.5 text-[11px] text-neutral-300 u-trans hover:border-neutral-500 disabled:opacity-40">
+            <option value="">行·估</option>${[1,2,3,4].map(r => `<option value="${r}" ${v.gridRows === r ? 'selected' : ''}>${r} 行</option>`).join('')}
+          </select>
+        </label>` : ''}
+        ${v && v.image ? `<button data-act="zoom-grid" title="放大查看" class="u-trans h-6 px-2.5 rounded-full text-[11px] text-ink-faint hover:text-neutral-200 border border-ink-line inline-flex items-center gap-1">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/></svg>放大</button>` : ''}
+        ${b.versions.length ? `<div class="flex items-center gap-1">
+          ${b.versions.map((vv, i) => `
+            <button data-act="switch-version" data-idx="${i}"
+              class="u-trans h-6 px-2.5 rounded-full text-[11px] ${i === b.activeV ? 'bg-neutral-100 text-ink-bg font-medium' : 'text-ink-faint hover:text-neutral-200 border border-ink-line'}">${vv.label}</button>`).join('')}
+        </div>` : ''}
+      </div>
+      <div class="flex-1 min-h-0 p-3">
+        ${v && v.image
+          ? `<div class="relative w-full h-full flex items-center justify-center overflow-hidden">
+               <img id="gridImg" src="${v.image}" alt="${esc(b.name)}宫格图" class="block max-w-full max-h-full object-contain u-trans" />
+               ${gl ? `<div id="gridOverlay" class="absolute grid" style="grid-template-columns:repeat(${gCols},1fr);grid-template-rows:repeat(${gRows},1fr)">
+                 ${dispShots.map(s => `<button data-act="jump-shot" data-no="${s.no}" data-cell="${s.no}" class="cell-hit" title="镜头 ${s.no} · 点击定位脚本"></button>`).join('')}
+               </div>` : ''}
+             </div>`
+          : `<div class="h-full flex items-center justify-center text-center px-6">
+               <div>
+                 <p class="text-[14px] text-neutral-300 font-medium">${b.status === 'pending' ? '本批还没有宫格图' : '当前版本暂无图片'}</p>
+                 <p class="text-[12.5px] text-ink-faint mt-1.5 leading-relaxed">点击下方「创建 Codex 任务指令」，<br/>在本批独立任务中发送后将自动回填</p>
+               </div>
+             </div>`}
+      </div>
+    </div>
+  </section>
+
+  <!-- 拖拽分隔条：左右比例可拖 -->
+  <div id="splitHandle" class="w-1.5 shrink-0 cursor-col-resize bg-ink-line hover:bg-neutral-500 u-trans" title="拖拽调整画面 / 脚本比例"></div>
+
+  <!-- 右侧：分镜脚本（文字可选中，选中后弹出在位注释） -->
+  <aside class="flex-1 min-w-0 min-h-0 flex flex-col bg-ink-panel/50">
+    <div class="shrink-0 px-4 lg:px-5 py-3 border-b border-ink-line flex items-center gap-2">
+      <span class="text-[12px] font-medium text-ink-mute tracking-wide">分镜脚本</span>
+      <span class="text-[11px] text-ink-faint">${v ? `${v.label} · ` : '首版待生图 · '}${rangeText(dispShots)}</span>
+    </div>
+    ${v && (v.appliedFeedback || v.feedback) ? `
+    <div class="shrink-0 px-4 lg:px-5 py-2.5 border-b border-ink-line bg-amber-500/5">
+      <p class="text-[11.5px] leading-relaxed text-amber-200/80"><span class="font-medium text-amber-200">本版基于返修意见：</span>${esc(v.appliedFeedback || v.feedback)}</p>
+    </div>` : ''}
+    <div class="scroll-slim flex-1 min-h-0 overflow-y-auto px-4 lg:px-5 py-3 space-y-2.5" id="shotList">
+      ${dispShots.length ? shotListHtml(dispShots, b, editable)
+        : (v && v.rawText
+          ? `<pre class="scroll-slim text-[12.5px] font-mono leading-relaxed text-neutral-300 whitespace-pre-wrap bg-ink-raise border border-ink-line rounded-md p-3.5">${esc(v.rawText)}</pre>`
+          : `<div class="h-full flex items-center justify-center py-16"><p class="text-[13px] text-ink-faint">暂无脚本内容</p></div>`)}
+    </div>
+  </aside>`;
+
+  bindAssetInput();
+  fitGridOverlay();
+  renderReviewBar();
+}
+
+/* ---------- 底部审核操作区 ---------- */
+function runStatusLabel(run) {
+  if (!run) return '';
+  const labels = {
+    ready: '等待在 Codex 中发送', preparing: 'Codex 正在读取素材', generating: 'Codex 正在生图',
+    submitting: 'Codex 正在回填', completed: '已自动回填', failed: `失败${run.message ? `：${run.message}` : ''}`,
+  };
+  return labels[run.status] || run.status;
+}
+
+function instructionForRun(run) {
+  return [
+    '请使用「分镜审核台」插件完成本批分镜宫格生成。',
+    `运行令牌：${run.token}`,
+    '先调用 get_batch_context。返修任务必须先用 prepare_revision_script 将审核意见落实到分镜脚本；随后把工具返回的 imageScript 原样交给 Codex 内置图片生成能力，完成后立即调用 submit_storyboard_version 回填。',
+    '为缩短等待，推荐使用 GPT-5.6 Luna，推理强度设为低。',
+    ISOLATION_REQUIREMENT,
+    '如果任一步失败，请调用 report_generation_status 标记 failed，并说明可以直接重试的原因。',
+  ].join('\n\n');
+}
+
+function renderReviewBar() {
+  const bar = $('#reviewBar');
+  const b = activeBatch();
+  if (!b) { bar.innerHTML = ''; return; }
+  const run = latestRun(b);
+  const runText = runStatusLabel(run);
+
+  if (b.status === 'reviewing' && b.activeV !== b.versions.length - 1) {
+    bar.innerHTML = `
+    <div class="px-4 lg:px-6 py-4 flex items-center gap-3">
+      <p class="flex-1 text-[13px] text-ink-mute">当前查看的是历史版本，只能阅读和对照。切换到最新版后才能批注或发起返修。</p>
+      <button data-act="switch-version" data-idx="${b.versions.length - 1}" class="u-trans h-10 px-5 rounded-full text-[13.5px] border border-ink-line text-neutral-200 hover:border-neutral-500">回到最新版</button>
+    </div>`;
+    return;
+  }
+
+  // 待生图：首版流程
+  if (b.status === 'pending') {
+    bar.innerHTML = `
+    <div class="px-4 lg:px-6 py-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+      <p class="flex-1 text-[13px] text-ink-mute leading-relaxed"><span class="text-blue-300 font-medium">第 1 步 · 生图：</span>创建任务指令后，在本项目中新建一个 Codex 任务并粘贴发送。推荐选择 <span class="text-neutral-200">GPT-5.6 Luna · 低推理</span>，插件完成生图后会自动回填。${runText ? `<span class="block mt-1 text-neutral-300">当前状态：${esc(runText)}</span>` : ''}</p>
+      <div class="flex gap-2 shrink-0 flex-wrap">
+        <button data-act="create-codex-run" class="u-trans h-10 px-5 rounded-full text-[13.5px] font-medium bg-neutral-100 text-ink-bg hover:bg-white inline-flex items-center gap-2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 011-1h10"/></svg>
+          创建 Codex 任务指令
+        </button>
+        <button data-act="copy-first" class="u-trans h-10 px-4 rounded-full text-[13px] border border-ink-line text-neutral-300 hover:border-neutral-500">仅复制提示词</button>
+        <button data-act="open-fillback" class="u-trans h-10 px-4 rounded-full text-[13px] border border-ink-line text-neutral-300 hover:border-neutral-500">人工回填</button>
+      </div>
+    </div>`;
+    return;
+  }
+
+  // 已通过：锁定态
+  if (b.status === 'passed') {
+    const v = latestVersion(b);
+    bar.innerHTML = `
+    <div class="px-4 lg:px-6 py-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+      <p class="flex-1 text-[13px] leading-relaxed"><span class="inline-flex items-center gap-1.5 text-green-300 font-medium">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.2 3L13 5"/></svg>
+        ${esc(b.name)}已通过审核</span>
+        <span class="text-ink-faint ml-2">最终版本 ${v ? v.label : ''} · 共迭代 ${b.versions.length} 版，可放心进入视频生成环节</span></p>
+      <button data-act="reopen-batch" class="u-trans shrink-0 h-10 px-5 rounded-full text-[13.5px] border border-ink-line text-ink-mute hover:text-neutral-100 hover:border-neutral-500">撤销通过，继续审核</button>
+    </div>`;
+    return;
+  }
+
+  // 审核中：定位注释 + 批注 + 三大操作
+  const anns = b.annotations || [];
+  bar.innerHTML = `
+  <div class="px-4 lg:px-6 py-4 flex flex-col lg:flex-row gap-3 lg:items-end">
+    <div class="flex-1 min-w-0">
+      <label class="block text-[12px] font-medium text-ink-mute mb-1.5">审核批注 <span class="text-ink-faint font-normal">（在右侧脚本中<span class="text-amber-300/90">选中问题文字</span>即可添加定位注释，自动汇入此处一并复制）</span></label>
+      <div class="bg-ink-bg border border-ink-line rounded-md focus-within:border-neutral-500 u-trans">
+        <div class="scroll-slim h-14 overflow-y-auto flex flex-wrap content-start gap-1.5 px-3 py-2 border-b border-ink-line/70">
+          ${anns.length ? `
+          ${anns.map(a => `
+            <span class="inline-flex items-center gap-1.5 max-w-full text-[12px] bg-amber-500/10 border border-amber-500/25 text-amber-200 rounded-full pl-2.5 pr-1.5 py-1">
+              <span class="whitespace-normal leading-relaxed">【镜头${a.shotNo}】「${esc(truncate(a.quote, 30))}」${esc(a.note)}</span>
+              <button data-act="del-annotation" data-id="${a.id}" title="删除注释"
+                class="w-4 h-4 rounded-full hover:bg-amber-400/20 text-amber-200/70 hover:text-amber-100 shrink-0 u-trans">×</button>
+            </span>`).join('')}` : '<span class="text-[11.5px] text-ink-faint py-1">暂无定位批注；这里只汇总镜头旁已添加的批注。</span>'}
+        </div>
+        <textarea id="feedbackInput" rows="2" spellcheck="false" placeholder="补充其他整体意见（可选），例：整体色调偏暗，提亮；节奏前松后紧……"
+          class="scroll-slim w-full bg-transparent border-0 px-3 py-2.5 text-[13.5px] leading-relaxed text-neutral-100 placeholder:text-ink-faint focus:outline-none resize-none">${esc(b.draft || '')}</textarea>
+      </div>
+    </div>
+    <div class="flex gap-2 shrink-0 flex-wrap">
+      <button data-act="create-codex-run" class="u-trans h-10 px-5 rounded-full text-[13.5px] font-medium bg-neutral-100 text-ink-bg hover:bg-white inline-flex items-center gap-2">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 011-1h10"/></svg>
+        交给 Codex 返修
+      </button>
+      <button data-act="copy-revision" class="u-trans h-10 px-4 rounded-full text-[13px] border border-ink-line text-neutral-300 hover:border-neutral-500">仅复制脚本返修指令</button>
+      <button data-act="open-fillback" class="u-trans h-10 px-4 rounded-full text-[13px] border border-ink-line text-neutral-300 hover:border-neutral-500">人工回填</button>
+      <button data-act="pass-batch" class="u-trans h-10 px-5 rounded-full text-[13.5px] font-medium border border-green-500/40 text-green-300 hover:bg-green-500/10 inline-flex items-center gap-2">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 8.5l3.2 3L13 5"/></svg>
+        通过本批
+      </button>
+    </div>
+  </div>`;
+
+  if (runText) {
+    const label = document.createElement('p');
+    label.className = `px-4 lg:px-6 pb-3 -mt-2 text-[11.5px] ${run.status === 'failed' ? 'text-red-300' : 'text-ink-faint'}`;
+    label.textContent = `最近一次 Codex 任务：${runText}`;
+    bar.appendChild(label);
+  }
+
+  // 批注草稿实时保存
+  $('#feedbackInput').addEventListener('input', (e) => { b.draft = e.target.value; save(); });
+}
+</script>
+<script>
+/* =====================================================================
+ * 弹窗逻辑
+ * ===================================================================== */
+function openModal(id) { $('#' + id).classList.remove('hidden'); }
+function closeModal(id) { $('#' + id).classList.add('hidden'); }
+
+/* ---------- 新建批次弹窗 ---------- */
+function inheritedAssetIds() {
+  const previous = state.batches.at(-1);
+  if (!previous || !inheritPreviousAssets) return [];
+  const available = new Set(state.assets.map(asset => asset.id));
+  return [...new Set(previous.assetIds || [])].filter(id => available.has(id)).slice(0, MAX_REFERENCE_ASSETS);
+}
+
+function renderInheritedAssets() {
+  const previous = state.batches.at(-1);
+  const ids = previous ? [...new Set(previous.assetIds || [])].filter(id => state.assets.some(asset => asset.id === id)).slice(0, MAX_REFERENCE_ASSETS) : [];
+  const row = $('#inheritAssetsRow');
+  const checkbox = $('#inheritAssetsCheck');
+  if (!row || !checkbox) return;
+  if (!previous) {
+    row.classList.add('hidden');
+    row.classList.remove('flex');
+    return;
+  }
+  row.classList.remove('hidden');
+  row.classList.add('flex');
+  checkbox.checked = inheritPreviousAssets && ids.length > 0;
+  checkbox.disabled = ids.length === 0;
+  const names = state.assets.filter(asset => ids.includes(asset.id)).map(asset => asset.name || '未命名资产');
+  $('#inheritAssetsSummary').textContent = names.length
+    ? `默认带入 ${names.length}/${MAX_REFERENCE_ASSETS} 张：${names.join('、')}。创建后仍可在参考资产区调整。`
+    : '上一批没有勾选参考资产，本批创建后请在参考资产区选择。';
+  checkbox.onchange = () => { inheritPreviousAssets = checkbox.checked; };
+}
+
+function renderNewBatchList() {
+  const pool = unassignedShots();
+  const box = $('#newBatchList');
+  inheritPreviousAssets = true;
+  renderInheritedAssets();
+  if (!pool.length) {
+    box.innerHTML = '<p class="text-[13px] text-ink-faint py-10 text-center">没有待分配的镜头了，请先导入分镜脚本</p>';
+    $('#newBatchInfo').textContent = '';
+    return;
+  }
+  const defaults = new Set(defaultBatchNos(pool));
+  let previousScene = null;
+  box.innerHTML = pool.map((s, i) => {
+    const scene = String(s.scene || '未标注场景').trim();
+    const sceneHeading = scene !== previousScene
+      ? `<div class="col-span-full mt-1 first:mt-0 px-2 py-1.5 border-y border-ink-line text-[11.5px] text-emerald-200/80">场景：${esc(scene)}</div>`
+      : '';
+    previousScene = scene;
+    return `${sceneHeading}
+    <label class="flex items-start gap-3 px-3 py-3 rounded-md border border-ink-line/70 hover:border-neutral-600 hover:bg-ink-raise u-trans cursor-pointer">
+      <input type="checkbox" class="nb-check mt-1 accent-neutral-200" data-idx="${i}" data-no="${s.no}" ${defaults.has(s.no) ? 'checked' : ''} />
+      <span class="min-w-0 flex-1">
+        <span class="flex items-center gap-2 mb-2">
+          <span class="font-mono text-[11px] px-1.5 py-0.5 rounded bg-black/40 text-neutral-300 border border-ink-line shrink-0">#${s.no}</span>
+          ${s.duration ? `<span class="ml-auto text-[11.5px] text-blue-300 shrink-0">${esc(s.duration)}</span>` : ''}
+        </span>
+        <span class="grid grid-cols-2 gap-x-3 gap-y-1.5">
+          ${s.camera ? `<p class="text-[11.5px] text-neutral-400 leading-relaxed"><span class="text-ink-faint">机位：</span>${esc(s.camera)}</p>` : '<span></span>'}
+          ${s.composition ? `<p class="text-[11.5px] text-neutral-400 leading-relaxed"><span class="text-ink-faint">构图：</span>${esc(s.composition)}</p>` : '<span></span>'}
+          <p class="col-span-2 text-[12.5px] text-ink-mute leading-relaxed whitespace-pre-wrap"><span class="text-neutral-400">画面：</span>${esc(s.desc)}</p>
+          ${s.dialogue ? `<p class="text-[11.5px] text-ink-faint leading-relaxed whitespace-pre-wrap"><span class="text-neutral-500">声音：</span>${esc(s.dialogue)}</p>` : '<span></span>'}
+          ${s.emotion ? `<p class="text-[11.5px] text-amber-200/70 leading-relaxed whitespace-pre-wrap"><span class="text-amber-200/40">情绪：</span>${esc(s.emotion)}</p>` : '<span></span>'}
+        </span>
+      </span>
+    </label>`;
+  }).join('');
+  box.querySelectorAll('.nb-check').forEach(cb => cb.addEventListener('change', updateNewBatchInfo));
+  updateNewBatchInfo();
+}
+function checkedNos() {
+  return [...document.querySelectorAll('.nb-check:checked')].map(c => Number(c.dataset.no)).sort((a, b) => a - b);
+}
+function durationSeconds(value) {
+  const text = String(value || '').trim();
+  const clock = text.match(/^(\d+):([0-5]?\d(?:\.\d+)?)$/);
+  if (clock) return Number(clock[1]) * 60 + Number(clock[2]);
+  const number = text.match(/\d+(?:\.\d+)?/);
+  return number ? Number(number[0]) : 0;
+}
+function defaultBatchNos(pool) {
+  const selected = [];
+  let total = 0;
+  for (const shot of pool.slice(0, 9)) {
+    const seconds = durationSeconds(shot.duration);
+    if (total + seconds > 15) break;
+    selected.push(shot.no);
+    total += seconds;
+  }
+  return selected;
+}
+function updateNewBatchInfo() {
+  const nos = checkedNos();
+  const selected = new Set(nos);
+  const seconds = unassignedShots().filter(s => selected.has(s.no)).reduce((sum, s) => sum + durationSeconds(s.duration), 0);
+  $('#newBatchInfo').textContent = nos.length ? `已选 ${nos.length} 个 · 共 ${Number(seconds.toFixed(2))} 秒：#${nos[0]}–#${nos[nos.length - 1]}` : '尚未选择镜头';
+}
+/* 校验：勾选镜头必须在待分配列表中连续（允许总池镜号有缺口，按顺序相邻即可） */
+function isContiguousSelection() {
+  const pool = unassignedShots();
+  const selected = new Set(checkedNos());
+  const idxs = pool.map((s, i) => selected.has(s.no) ? i : -1).filter(i => i >= 0);
+  return idxs.length > 0 && (idxs[idxs.length - 1] - idxs[0] + 1 === idxs.length);
+}
+
+/* ---------- 通用确认弹窗 ---------- */
+function askConfirm(title, msg, okText, cb) {
+  $('#confirmTitle').textContent = title;
+  $('#confirmMsg').textContent = msg;
+  $('#confirmOk').textContent = okText || '确认';
+  confirmCallback = cb;
+  openModal('confirmModal');
+}
+
+function showIssues(title, intro, issues) {
+  $('#issueTitle').textContent = title;
+  $('#issueIntro').textContent = intro || '请处理下列问题后重试。';
+  $('#issueList').innerHTML = issues.map((issue, index) => `
+    <div class="rounded-md border border-red-400/20 bg-red-400/5 px-3 py-2">
+      <p class="text-[12.5px] text-neutral-200">${index + 1}. ${esc(issue.name || '未命名图片')}</p>
+      <p class="text-[11.5px] leading-relaxed text-red-200/80 mt-0.5">${esc(issue.reason || '图片无法读取')}</p>
+    </div>`).join('');
+  openModal('issueModal');
+}
+
+async function ensureBatchAssetsValid(b) {
+  if (!SERVER_MODE || !(b.assetIds || []).length) return true;
+  try {
+    await flushSave();
+    const response = await fetch(`/api/batches/${encodeURIComponent(b.id)}/assets/validate`, { method: 'POST' });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.valid) {
+      const issues = Array.isArray(result.issues) ? result.issues : [{ name: '参考资产', reason: result.error || '校验失败' }];
+      showIssues('参考资产未通过校验', `已一次检查本批全部 ${result.checked ?? issues.length} 张参考图，发现 ${issues.length} 张有问题。`, issues);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    toast(`图片校验失败：${error.message}`, 'err');
+    return false;
+  }
+}
+
+function ensureAssetCountWithinLimit(b) {
+  const count = (b.assetIds || []).length;
+  if (count <= MAX_REFERENCE_ASSETS) return true;
+  state.assetsExpanded = true;
+  assetWarningBatchId = b.id;
+  save(); renderWorkspace();
+  toast(`本批已选 ${count} 张，内置生图最多使用 ${MAX_REFERENCE_ASSETS} 张，请先取消 ${count - MAX_REFERENCE_ASSETS} 张`, 'warn');
+  return false;
+}
+$('#confirmOk').addEventListener('click', () => {
+  closeModal('confirmModal');
+  if (confirmCallback) { const cb = confirmCallback; confirmCallback = null; cb(); }
+});
+
+function requireAllAssetsReview(b, proceed) {
+  const selected = new Set(b.assetIds || []);
+  if (state.assets.length < 2 || !state.assets.every(a => selected.has(a.id))) return false;
+  state.assetsExpanded = true;
+  assetWarningBatchId = b.id;
+  save(); renderWorkspace();
+  askConfirm(
+    '已选择全部参考资产',
+    `当前 ${state.assets.length} 张人物、场景和道具资产都会交给 Codex。请先在上方展开区取消不属于本批的图片；如果本批确实需要全部资产，可以继续。`,
+    '确认使用全部',
+    () => {
+      assetWarningBatchId = null;
+      renderWorkspace();
+      proceed();
+    },
+  );
+  toast('已展开全部参考资产，请复核本批是否真的全部需要', 'warn');
+  return true;
+}
+
+/* ---------- 灯箱 ---------- */
+function openLightbox(src) { $('#lightboxImg').src = src; openModal('lightbox'); }
+
+/* ---------- 参考资产上传 ---------- */
+function bindAssetInput() {
+  const input = $('#assetInput');
+  if (!input) return;
+  input.addEventListener('change', async (e) => {
+    const items = [...e.target.files].map(file => ({ file, name: file.name.replace(/\.[^.]+$/, '') }));
+    e.target.value = '';
+    await validateAndAddAssets(items);
+  });
+}
+/* 新增资产：本批未满 5 张时默认勾选；始终只高亮，不自动进入重命名 */
+function addAsset(name, img) {
+  const na = { id: uid(), name, type: state.assetDefaultType || 'character', img };
+  state.assets.push(na);
+  const b = activeBatch();
+  const selected = Boolean(b && b.status !== 'passed' && (b.assetIds || []).length < MAX_REFERENCE_ASSETS);
+  if (selected) b.assetIds = [...new Set([...(b.assetIds || []), na.id])];
+  recentAssetIds.add(na.id);
+  save(); renderWorkspace();
+  setTimeout(() => {
+    if (recentAssetIds.delete(na.id)) renderWorkspace();
+  }, 2400);
+  return selected;
+}
+function readImageFile(file, cb) {
+  const reader = new FileReader();
+  reader.onload = () => cb(reader.result);
+  reader.readAsDataURL(file);
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('无法读取文件内容'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function normalizeAssetImage(file) {
+  if (!file || !file.size) throw new Error('图片文件为空');
+  if (file.size > 50 * 1024 * 1024) throw new Error('单张图片不能超过 50MB');
+  let bitmap;
+  try { bitmap = await createImageBitmap(file); }
+  catch { throw new Error('图片解码失败，文件可能损坏或编码不兼容'); }
+  try {
+    if (!bitmap.width || !bitmap.height) throw new Error('图片宽高无效');
+    if (bitmap.width > 16384 || bitmap.height > 16384 || bitmap.width * bitmap.height > 40_000_000) {
+      throw new Error('图片尺寸过大，最长边需不超过 16384px 且总像素不超过 4000 万');
+    }
+    const scale = Math.min(1, MAX_CODEX_REFERENCE_EDGE / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('浏览器无法校验图片像素');
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    for (const quality of [0.9, 0.82, 0.74]) {
+      const normalized = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
+      if (normalized?.size && normalized.size <= MAX_CODEX_REFERENCE_BYTES) return await blobToDataUrl(normalized);
+    }
+    throw new Error('图片标准化后仍超过 4MB，请先缩小图片尺寸');
+  } finally {
+    bitmap.close?.();
+  }
+}
+
+async function validateAndAddAssets(items) {
+  if (!items.length) return;
+  const results = await Promise.all(items.map(async ({ file, name }) => {
+    try { return { ok: true, name, dataUrl: await normalizeAssetImage(file) }; }
+    catch (error) { return { ok: false, name, reason: error.message }; }
+  }));
+  const valid = results.filter(result => result.ok);
+  const issues = results.filter(result => !result.ok);
+  const selectedCount = valid.reduce((count, result) => count + Number(addAsset(result.name, result.dataUrl)), 0);
+  const unselectedCount = valid.length - selectedCount;
+  if (issues.length) {
+    showIssues(
+      '部分参考图未通过上传校验',
+      `已一次检查本次选择的 ${results.length} 张图片：${valid.length} 张已添加，${issues.length} 张未添加。${unselectedCount ? ` 本批已达 ${MAX_REFERENCE_ASSETS} 张上限，新增图片中有 ${unselectedCount} 张未自动勾选。` : ''}`,
+      issues,
+    );
+    if (unselectedCount) toast(`图片已上传；本批参考图已满，${unselectedCount} 张未自动勾选`, 'warn');
+  } else if (unselectedCount) {
+    toast(`已添加 ${valid.length} 张图片；本批参考图已满，${unselectedCount} 张未自动勾选`, 'warn');
+  } else {
+    toast(`已添加并标准化 ${valid.length} 张参考资产`);
+  }
+}
+
+/* =====================================================================
+ * 业务动作
+ * ===================================================================== */
+const actions = {
+  /* ----- 顶栏 ----- */
+  'open-import': () => {
+    if (state.shots.length || state.batches.length) {
+      toast('当前项目已有分镜数据，请先清空后再导入', 'warn');
+      return;
+    }
+    $('#importText').value = '';
+    pendingImportAspect = state.aspectRatio === '9:16' ? '9:16' : '16:9';
+    renderImportAspect();
+    openModal('importModal');
+  },
+  'set-import-aspect': (el) => {
+    if (state.shots.length) return;
+    pendingImportAspect = el.dataset.ratio === '9:16' ? '9:16' : '16:9';
+    renderImportAspect();
+  },
+  'load-demo': () => askConfirm('加载示例数据？', '将覆盖当前全部数据，载入一个包含两个批次的演示项目。', '加载', () => {
+    loadDemoData(); save(); renderAll(); toast('示例数据已加载');
+  }),
+  'export-data': () => {
+    downloadFile(JSON.stringify(state, null, 2), `${state.projectName || '分镜审核'}-备份-${new Date().toISOString().slice(0, 10)}.json`, 'application/json');
+    toast('备份文件已导出');
+  },
+  'export-logs': async () => {
+    if (!SERVER_MODE) { toast('请通过本地服务打开审核台后再导出操作记录', 'warn'); return; }
+    try {
+      const result = await fetch('/api/logs?limit=500', { cache: 'no-store' }).then(response => response.json());
+      downloadFile(JSON.stringify(result.logs || [], null, 2), `分镜审核台-操作记录-${new Date().toISOString().slice(0, 10)}.json`, 'application/json;charset=utf-8');
+      toast(`已导出 ${(result.logs || []).length} 条操作记录`);
+    } catch (error) { toast(`操作记录导出失败：${error.message}`, 'err'); }
+  },
+  'export-final': async () => {
+    try {
+      let result;
+      if (SERVER_MODE) {
+        await flushSave();
+        const response = await fetch('/api/export/final', { cache: 'no-store' });
+        result = await response.json();
+        if (!response.ok) throw new Error(result.error || '导出失败');
+      } else {
+        result = collectFinalShots(true);
+        result.text = shotsToText(result.shots, false);
+      }
+      if (!result.shots?.length) { toast('还没有可导出的分镜脚本', 'warn'); return; }
+      downloadFile(result.text, `${state.projectName || '分镜审核'}-终版分镜脚本.txt`, 'text/plain;charset=utf-8');
+      toast(`已导出终版脚本（${result.shots.length} 个镜头${result.renumbered ? '，已自动连续编号' : ''}）`);
+    } catch (error) { toast(`终版脚本导出失败：${error.message}`, 'err'); }
+  },
+  'reset-all': () => askConfirm('清空全部数据？', '将删除所有镜头、批次、版本与参考资产，且无法恢复。建议先导出备份。', '全部清空', () => {
+    state = { projectName: '未命名短剧项目', shots: [], batches: [], assets: [], runs: [], activeBatchId: null, assetDefaultType: 'character', assetsExpanded: false, aspectRatio: '16:9', split: 50 };
+    save(); renderAll(); toast('已清空');
+  }),
+
+  /* ----- 导入脚本 ----- */
+  'fill-sample-import': () => {
+    $('#importText').value = `【场景：咖啡馆靠窗区-白天】
+
+镜头1
+时长：1.5秒
+机位/景别/运镜：咖啡馆内中景，固定机位。
+构图：林晚位于画面右侧三分之一，窗景留白。
+画面内容：林晚坐在靠窗位置，指尖无意识地摩挲杯壁，眼神飘向窗外。
+台词 / 心声 / 音效：林晚（独白）：这杯美式不加糖。杯碟轻碰声、店内环境音。
+情绪目标：克制、走神，掩饰内心不安。
+
+镜头2
+时长：1.0秒
+机位/景别/运镜：桌面文件特写，缓慢推近。
+构图：文件居中，手从画面右上方进入。
+画面内容：一只骨节分明的手把一份文件推到桌面中央。
+台词 / 心声 / 音效：无；纸张摩擦声。
+情绪目标：制造突如其来的压迫感。`;
+  },
+  'submit-import': () => {
+    if (state.shots.length || state.batches.length) {
+      closeModal('importModal');
+      toast('当前项目已有分镜数据，请先清空后再导入', 'warn');
+      return;
+    }
+    const shots = parseShots($('#importText').value);
+    if (!shots) { toast('没有解析到有效镜头，请检查格式', 'err'); return; }
+    if (!state.shots.length) state.aspectRatio = pendingImportAspect === '9:16' ? '9:16' : '16:9';
+    // 合并进总池：同镜号覆盖，新镜号追加
+    const map = new Map(state.shots.map(s => [s.no, s]));
+    shots.forEach(s => map.set(s.no, s));
+    state.shots = [...map.values()].sort((a, b) => a.no - b.no);
+    closeModal('importModal');
+    save(); renderAll();
+    renderNewBatchList();
+    openModal('newBatchModal');
+    toast(`已导入 ${shots.length} 个镜头，请选择第一批审核范围`);
+  },
+
+  /* ----- 批次 ----- */
+  'switch-batch': (el) => { state.activeBatchId = el.dataset.id; save(); renderAll(); },
+  'open-newbatch': () => {
+    if (!unassignedShots().length) { toast('没有待分配的镜头，请先导入分镜脚本', 'warn'); return; }
+    if (alignUnassignedAfterLatestBatch()) save();
+    renderNewBatchList(); openModal('newBatchModal');
+  },
+  'suggest-scene': () => {
+    // 智能建议：从第一个待分配镜头起，选取同场景的最长连续段
+    const pool = unassignedShots();
+    if (!pool.length) return;
+    const scene = pool[0].scene;
+    if (!scene) { toast('当前脚本未标注场景字段，请手动勾选镜头', 'warn'); return; }
+    const suggest = new Set();
+    let seconds = 0;
+    for (const s of pool) {
+      const duration = durationSeconds(s.duration);
+      if (s.scene !== scene || suggest.size >= 9 || seconds + duration > 15) break;
+      suggest.add(s.no);
+      seconds += duration;
+    }
+    document.querySelectorAll('.nb-check').forEach(c => { c.checked = suggest.has(Number(c.dataset.no)); });
+    updateNewBatchInfo();
+    toast(`已勾选同场景「${scene}」的 ${suggest.size} 个连续镜头`);
+  },
+  'submit-newbatch': () => {
+    const nos = checkedNos();
+    if (!nos.length) { toast('请至少勾选一个镜头', 'warn'); return; }
+    if (!isContiguousSelection()) { toast('请从前往后连续选择镜头，场景切换处拆到下一批', 'err'); return; }
+    const selected = new Set(nos);
+    const sourceShots = unassignedShots().filter(shot => selected.has(shot.no)).map(shot => ({ ...shot }));
+    const batch = {
+      id: uid(), name: `第${state.batches.length + 1}批`, status: 'pending', draft: '', activeV: 0,
+      pendingNos: nos, sourceShots, rangeStart: nos[0], sourceCount: nos.length, versions: [], assetIds: inheritedAssetIds(), annotations: [],
+    };
+    state.batches.push(batch);
+    state.activeBatchId = batch.id;
+    closeModal('newBatchModal'); save(); renderAll();
+    toast(`${batch.name}已创建${batch.assetIds.length ? `，已沿用上一批 ${batch.assetIds.length} 张参考资产` : ''}`);
+  },
+  'copy-first': async (_el, _event, scopeConfirmed = false) => {
+    const b = activeBatch(); if (!b) return;
+    if (!ensureAssetCountWithinLimit(b)) return;
+    if (!scopeConfirmed && requireAllAssetsReview(b, () => actions['copy-first'](null, null, true))) return;
+    if (!await ensureBatchAssetsValid(b)) return;
+    const shots = batchSourceShots(b);
+    copyText(buildFirstPrompt(b, shots));
+  },
+  'create-codex-run': async (_el, _event, scopeConfirmed = false) => {
+    const b = activeBatch(); if (!b) return;
+    if (!ensureAssetCountWithinLimit(b)) return;
+    if (!scopeConfirmed && requireAllAssetsReview(b, () => actions['create-codex-run'](null, null, true))) return;
+    if (!await ensureBatchAssetsValid(b)) return;
+    const active = latestRun(b);
+    if (active && ['ready', 'preparing', 'generating', 'submitting'].includes(active.status)) {
+      await copyText(instructionForRun(active), '本批已有进行中的任务，原任务指令已重新复制');
+      return;
+    }
+    const mode = b.status === 'reviewing' ? 'revision' : 'first';
+    if (mode === 'revision') {
+      b.draft = $('#feedbackInput')?.value ?? b.draft;
+      const feedback = composeFeedback(b);
+      if (!feedback) { toast('请先填写本轮返修意见', 'warn'); $('#feedbackInput')?.focus(); return; }
+      b.pendingFeedback = feedback;
+      save();
+    }
+    try {
+      await flushSave();
+      const response = await fetch(`/api/batches/${encodeURIComponent(b.id)}/runs`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        if (Array.isArray(result.issues) && result.issues.length) {
+          showIssues('参考资产未通过校验', result.error, result.issues);
+          return;
+        }
+        throw new Error(result.error || '创建任务失败');
+      }
+      await refreshFromServer();
+      await copyText(result.instruction, '任务指令已复制；请在本项目中新建一个 Codex 任务并粘贴发送');
+    } catch (error) { toast(`无法创建 Codex 任务：${error.message}`, 'err'); }
+  },
+  'pass-batch': () => {
+    const b = activeBatch(); if (!b) return;
+    const v = latestVersion(b);
+    if (!v?.image || String(v.image).startsWith('data:image/svg+xml')) { toast('必须先回填真实宫格图才能通过', 'warn'); return; }
+    if (!v.shots?.length) { toast('最新版本没有可解析的完整分镜文本', 'warn'); return; }
+    if ((v.gridCols || gridLayout(v.shots.length).cols) * (v.gridRows || gridLayout(v.shots.length).rows) < v.shots.length) { toast('宫格容量小于镜头数量，请先修正布局', 'warn'); return; }
+    const delta = v.shots.length - Number(b.sourceCount || v.shots.length);
+    const adjustment = delta ? ` 本批${delta > 0 ? `新增 ${delta}` : `合并减少 ${Math.abs(delta)}`} 镜，通过后待分配镜头将自动重排。` : '';
+    askConfirm(`确认通过「${b.name}」？`, `通过后本批将锁定，最新一版宫格图与脚本作为最终版。${adjustment}`, '通过', () => {
+      b.status = 'passed';
+      syncPoolFromBatch(b);
+      save(); renderAll();
+      toast(`${b.name}已通过`);
+      if (unassignedShots().length) setTimeout(() => actions['open-newbatch'](), 450);
+    });
+  },
+  'delete-latest-batch': () => {
+    const b = activeBatch();
+    const latest = state.batches.at(-1);
+    if (!b || !latest || b.id !== latest.id) { toast('只能删除最新批次', 'warn'); return; }
+    const hasVersions = b.versions?.length > 0;
+    const message = hasVersions
+      ? '删除后，本批宫格图和全部返修记录将无法恢复。确定删除？'
+      : '删除后，本批镜头将退回待分配。确定删除？';
+    askConfirm(`删除「${b.name}」？`, message, '确认删除', async () => {
+      try {
+        if (SERVER_MODE) {
+          await flushSave();
+          const response = await fetch(`/api/batches/${encodeURIComponent(b.id)}`, { method: 'DELETE' });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || '删除失败');
+          state = result.state;
+          upgradeLoadedState();
+          serverRevision = Number(state.revision || 0);
+        } else {
+          state.batches.pop();
+          state.runs = (state.runs || []).filter(run => run.batchId !== b.id);
+          state.activeBatchId = state.batches.at(-1)?.id || null;
+          save();
+        }
+        renderAll();
+        toast(`${b.name}已删除，镜头已退回待分配`);
+      } catch (error) { toast(`删除批次失败：${error.message}`, 'err'); }
+    });
+  },
+  'reopen-batch': () => {
+    const b = activeBatch(); if (!b) return;
+    b.status = 'reviewing'; save(); renderAll(); toast('已撤销通过，继续审核');
+  },
+  'switch-version': (el) => {
+    const b = activeBatch(); if (!b) return;
+    b.activeV = Number(el.dataset.idx); save(); renderWorkspace();
+  },
+
+  /* ----- 审核 ----- */
+  'jump-shot': (el) => selectShot(Number(el.dataset.no), true),
+  'select-shot': (el) => selectShot(Number(el.dataset.no), false),
+  'zoom-grid': () => {
+    const b = activeBatch(); const v = b && curVersion(b);
+    if (v && v.image) openLightbox(v.image);
+  },
+  'annotate-shot': (el) => {
+    const ta = $('#feedbackInput'); if (!ta) return;
+    const tag = `【镜头${el.dataset.no}】`;
+    ta.value = ta.value ? ta.value.replace(/\s+$/, '') + '；' + tag : tag;
+    ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+    ta.dispatchEvent(new Event('input'));
+  },
+  'copy-revision': async (_el, _event, scopeConfirmed = false) => {
+    const b = activeBatch(); if (!b) return;
+    const v = latestVersion(b);
+    if (!v) { toast('请先回填首版结果', 'warn'); return; }
+    b.draft = $('#feedbackInput')?.value ?? b.draft;
+    const feedback = composeFeedback(b);
+    if (!feedback) { toast('请先添加注释或填写审核批注', 'warn'); $('#feedbackInput')?.focus(); return; }
+    if (!ensureAssetCountWithinLimit(b)) return;
+    if (!scopeConfirmed && requireAllAssetsReview(b, () => actions['copy-revision'](null, null, true))) return;
+    if (!await ensureBatchAssetsValid(b)) return;
+    b.pendingFeedback = feedback;   // 下一版的来源意见，避免错误标记在当前版上
+    save(); renderWorkspace();
+    copyText(buildRevisionPrompt(b, v, feedback));
+  },
+
+  /* ----- 回填 ----- */
+  'open-fillback': () => {
+    const b = activeBatch(); if (!b) { toast('请先新建批次', 'warn'); return; }
+    $('#fillbackTitle').textContent = `回填 Codex 结果 · ${b.name}${b.versions.length ? `（将生成 v${b.versions.length + 1}）` : '（首版 v1）'}`;
+    $('#fillbackText').value = '';
+    clearFillbackImage();
+    openModal('fillbackModal');
+  },
+  'clear-fillback-image': () => clearFillbackImage(),
+  'submit-fillback': () => {
+    const b = activeBatch(); if (!b) return;
+    const text = $('#fillbackText').value.trim();
+    const prev = latestVersion(b);
+    if (!fillbackImageData) { toast('请上传本次真实生成的宫格图', 'warn'); return; }
+    // 解析脚本：失败时不创建半成品版本；不粘贴文本则继承本批当前完整脚本
+    let shots = [], rawText = '';
+    if (text) {
+      const parsed = parseShots(text);
+      if (!parsed) { toast('分镜文本无法解析，请检查标准格式', 'err'); return; }
+      shots = parsed; rawText = text;
+    } else if (prev) {
+      shots = prev.shots; rawText = prev.rawText || shotsToText(prev.shots);
+    } else {
+      shots = batchSourceShots(b);
+      rawText = shotsToText(shots);
+    }
+    if (!shots.length) { toast('当前批次没有可用的完整分镜文本', 'err'); return; }
+    const rangeStart = Number(b.rangeStart || shots[0].no || 1);
+    shots = [...shots].sort((a, z) => a.no - z.no).map((shot, index) => ({
+      ...shot,
+      no: rangeStart + index,
+      dialogue: normalizeAudioText(shot.dialogue),
+    }));
+    rawText = shotsToText(shots, false);
+    const gridCols = Number($('#fbCols').value) || gridLayout(shots.length).cols;
+    const gridRows = Number($('#fbRows').value) || gridLayout(shots.length).rows;
+    if (gridCols * gridRows < shots.length) { toast('宫格容量小于镜头数量，请增加行数或列数', 'err'); return; }
+    const v = {
+      id: uid(), label: `v${b.versions.length + 1}`,
+      image: fillbackImageData,
+      shots, rawText, appliedFeedback: b.pendingFeedback || composeFeedback(b), createdAt: Date.now(),
+      // 用户声明的宫格实际行列（留空则按镜头数自动估算）
+      gridCols,
+      gridRows,
+    };
+    b.versions.push(v);
+    b.activeV = b.versions.length - 1;
+    b.status = 'reviewing';
+    b.draft = '';
+    delete b.pendingFeedback;
+    b.annotations = [];   // 上一轮的注释已随提示词发出，开启新一轮
+    delete b.pendingNos;
+    closeModal('fillbackModal'); save(); renderAll();
+    toast(`${v.label} 已生成，开始新一轮审核`);
+  },
+
+  /* ----- 资产 / 灯箱 / 弹窗 ----- */
+  'toggle-asset': (el) => {
+    const b = activeBatch();
+    if (!b) { toast('请先新建批次', 'warn'); return; }
+    if (b.status === 'passed') { toast('本批已通过，资产勾选已锁定', 'warn'); return; }
+    b.assetIds = b.assetIds || [];
+    const id = el.dataset.id;
+    if (!b.assetIds.includes(id) && b.assetIds.length >= MAX_REFERENCE_ASSETS) {
+      state.assetsExpanded = true;
+      assetWarningBatchId = b.id;
+      save(); renderWorkspace();
+      toast(`单次最多使用 ${MAX_REFERENCE_ASSETS} 张参考图，请先取消一张`, 'warn');
+      return;
+    }
+    b.assetIds = b.assetIds.includes(id) ? b.assetIds.filter(x => x !== id) : [...b.assetIds, id];
+    assetWarningBatchId = null;
+    save(); renderWorkspace();
+  },
+  'del-asset': (el) => {
+    const id = el.dataset.id;
+    state.assets = state.assets.filter(a => a.id !== id);
+    state.batches.forEach(b => { b.assetIds = (b.assetIds || []).filter(x => x !== id); });
+    save(); renderWorkspace();
+  },
+  /* 设置新拖入/上传图片的默认归组 */
+  'set-asset-default-type': (el) => {
+    state.assetDefaultType = ['character', 'scene', 'prop'].includes(el.dataset.type) ? el.dataset.type : 'character';
+    save(); renderWorkspace();
+  },
+  /* 循环切换资产类型：人物图 → 场景图 → 道具图 */
+  'toggle-asset-type': (el) => {
+    const a = state.assets.find(x => x.id === el.dataset.id);
+    if (!a) return;
+    const types = ['character', 'scene', 'prop'];
+    a.type = types[(types.indexOf(a.type || 'character') + 1) % types.length];
+    save(); renderWorkspace();
+    toast(`「${a.name}」已标记为${ASSET_TYPE_META[a.type].label}图`);
+  },
+  /* 资产重命名：点击名称进入编辑态 */
+  'rename-asset': (el) => {
+    editingAssetId = el.dataset.id;
+    renderWorkspace();
+    const inp = $('#assetRenameInput');
+    if (inp) { inp.focus(); inp.select(); }
+  },
+  /* 资产面板：收起 / 展开全部 */
+  'toggle-assets-expand': () => {
+    state.assetsExpanded = !state.assetsExpanded;
+    save(); renderWorkspace();
+  },
+  'del-annotation': (el) => {
+    const b = activeBatch(); if (!b) return;
+    b.annotations = (b.annotations || []).filter(a => a.id !== el.dataset.id);
+    save(); renderWorkspace();
+  },
+  'annot-submit': () => {
+    const b = activeBatch();
+    if (!b || !pendingAnnot || b.activeV !== b.versions.length - 1 || b.status !== 'reviewing') return;
+    const note = $('#annotPopInput').value.trim();
+    if (!note) { toast('请填写注释内容', 'warn'); $('#annotPopInput').focus(); return; }
+    b.annotations = b.annotations || [];
+    b.annotations.push({ id: uid(), shotNo: pendingAnnot.shotNo, quote: pendingAnnot.quote, note });
+    pendingAnnot = null;
+    hideAnnotPop();
+    window.getSelection()?.removeAllRanges();
+    save(); renderWorkspace();
+    toast('注释已加入审核批注');
+  },
+  'annot-cancel': () => { pendingAnnot = null; hideAnnotPop(); window.getSelection()?.removeAllRanges(); },
+  'view-image': (el) => openLightbox(el.dataset.src),
+  'close-lightbox': () => closeModal('lightbox'),
+  'close-modal': (el) => closeModal(el.dataset.target),
+};
+
+function clearFillbackImage() {
+  fillbackImageData = null;
+  $('#fillbackImage').value = '';
+  $('#fillbackPreview').classList.add('hidden');
+}
+
+/* 提交 / 取消资产重命名（cancel=true 时放弃修改） */
+function commitAssetRename(cancel) {
+  const inp = $('#assetRenameInput');
+  if (!inp || !editingAssetId) { editingAssetId = null; return; }
+  const a = state.assets.find(x => x.id === editingAssetId);
+  const val = inp.value.trim();
+  editingAssetId = null;
+  if (a && !cancel && val && val !== a.name) {
+    a.name = val;
+    save(); renderWorkspace();
+    toast(`已重命名为「${val}」`);
+  } else {
+    renderWorkspace();
+  }
+}
+/* 失焦即提交重命名 */
+document.addEventListener('focusout', (e) => {
+  if (e.target && e.target.id === 'assetRenameInput') commitAssetRename(false);
+});
+
+/* 批次通过后仅固化本批最终版本；不改动已经创建的其他批次。 */
+function syncPoolFromBatch(b) {
+  const v = latestVersion(b);
+  if (!v || !v.shots.length) return;
+  const rangeStart = Number(b.rangeStart || Math.min(...v.shots.map(s => s.no)) || 1);
+  const normalizedShots = numberBatchShots(b, v.shots)
+    .map((shot) => ({ ...shot, dialogue: normalizeAudioText(shot.dialogue) }));
+  v.shots = normalizedShots;
+  v.rawText = shotsToText(normalizedShots, false);
+  b.rangeStart = rangeStart;
+  b.sourceCount = normalizedShots.length;
+}
+
+/* 通用文件下载 */
+function downloadFile(content, filename, type) {
+  const blob = new Blob([content], { type });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+/* 汇总全部批次的终版镜头；若批次间镜号有缺口或重复，导出副本自动从 1 连续编号。 */
+function collectFinalShots(withMeta = false) {
+  const out = [];
+  for (const b of state.batches) {
+    const v = latestVersion(b);
+    const shots = v ? numberBatchShots(b, v.shots) : batchSourceShots(b);
+    out.push(...shots);
+  }
+  const renumbered = out.some((shot, index) => shot.no !== index + 1);
+  const shots = renumbered ? out.map((shot, index) => ({ ...shot, no: index + 1 })) : out;
+  return withMeta ? { shots, renumbered } : shots;
+}
+
+/* =====================================================================
+ * 事件绑定与初始化
+ * ===================================================================== */
+
+/* ---------- 宫格图点击热区对齐：覆盖层精确贴合图片实际显示区域 ---------- */
+let gridOverlayObserver = null;
+function fitGridOverlay() {
+  const img = $('#gridImg'), ov = $('#gridOverlay');
+  gridOverlayObserver?.disconnect();
+  gridOverlayObserver = null;
+  if (!img || !ov) return;
+  const sync = () => {
+    ov.style.left = img.offsetLeft + 'px';
+    ov.style.top = img.offsetTop + 'px';
+    ov.style.width = img.clientWidth + 'px';
+    ov.style.height = img.clientHeight + 'px';
+  };
+  if (img.complete && img.naturalWidth) sync(); else img.onload = sync;
+  if ('ResizeObserver' in window) {
+    gridOverlayObserver = new ResizeObserver(() => requestAnimationFrame(sync));
+    gridOverlayObserver.observe(img);
+    if (img.parentElement) gridOverlayObserver.observe(img.parentElement);
+  }
+  requestAnimationFrame(() => requestAnimationFrame(sync));
+}
+window.addEventListener('resize', fitGridOverlay);
+
+/* ---------- 左右分栏拖拽 ---------- */
+let splitDragging = false;
+document.addEventListener('pointerdown', (e) => {
+  if (e.target.closest && e.target.closest('#splitHandle')) {
+    splitDragging = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  }
+});
+document.addEventListener('pointermove', (e) => {
+  if (!splitDragging) return;
+  const main = $('#workspace');
+  const rect = main.getBoundingClientRect();
+  const ratio = Math.min(78, Math.max(22, (e.clientX - rect.left) / rect.width * 100));
+  state.split = Math.round(ratio * 10) / 10;
+  const lp = $('#leftPane');
+  if (lp) lp.style.flex = `0 0 ${state.split}%`;
+  fitGridOverlay();
+});
+document.addEventListener('pointerup', () => {
+  if (!splitDragging) return;
+  splitDragging = false;
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+  save();
+});
+
+/* ---------- 镜头选中态：格子 ↔ 脚本卡片 双向定位 ---------- */
+let selectedShotNo = null;
+function selectShot(no, scroll) {
+  selectedShotNo = no;
+  document.querySelectorAll('.shot-card.shot-selected').forEach(c => c.classList.remove('shot-selected'));
+  document.querySelectorAll('.cell-hit.cell-active').forEach(c => c.classList.remove('cell-active'));
+  const card = document.getElementById('shot-' + no);
+  const cell = document.querySelector(`.cell-hit[data-cell="${no}"]`);
+  if (card) {
+    card.classList.add('shot-selected');
+    if (scroll) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  if (cell) cell.classList.add('cell-active');
+}
+
+/* ---------- 选中脚本文字 → 在位添加注释 ---------- */
+let pendingAnnot = null;   // 待提交的注释：{shotNo, quote}
+
+function hideAnnotPop() { $('#annotPop').classList.add('hidden'); }
+
+function handleTextSelect(e) {
+  // 在浮窗内操作时不触发
+  if (e.target.closest && e.target.closest('#annotPop')) return;
+  setTimeout(() => {
+    const b = activeBatch();
+    if (!b || b.status !== 'reviewing' || b.activeV !== b.versions.length - 1) { return; }
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed) return;
+    const text = sel.toString().trim();
+    if (!text) return;
+    const node = sel.anchorNode && (sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement);
+    const card = node && node.closest ? node.closest('.shot-card') : null;
+    if (!card) return;
+    // 记录上下文并定位浮窗
+    pendingAnnot = { shotNo: Number(card.dataset.no), quote: text.slice(0, 120) };
+    $('#annotPopShot').textContent = `【镜头${card.dataset.no}】`;
+    $('#annotPopQuote').textContent = `「${pendingAnnot.quote}」`;
+    $('#annotPopInput').value = '';
+    const pop = $('#annotPop');
+    pop.classList.remove('hidden');
+    const rect = sel.getRangeAt(0).getBoundingClientRect();
+    const pw = 288, ph = 200;
+    const x = Math.min(Math.max(8, rect.left), window.innerWidth - pw - 8);
+    let y = rect.bottom + 8;
+    if (y + ph > window.innerHeight) y = Math.max(8, rect.top - ph - 8);
+    pop.style.left = x + 'px';
+    pop.style.top = y + 'px';
+    $('#annotPopInput').focus();
+  }, 10);
+}
+document.addEventListener('mouseup', handleTextSelect);
+document.addEventListener('touchend', handleTextSelect);
+
+/* 图文联动：格子悬停高亮由 CSS :hover 处理；选中态由 selectShot 统一管理 */
+
+/* ---------- 点击任意处时隐藏注释浮窗（浮窗内部除外） ---------- */
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-act]');
+  if (!e.target.closest('#annotPop') && (!el || !['annot-submit', 'annot-cancel'].includes(el.dataset.act))) {
+    hideAnnotPop();
+  }
+  if (!el) return;
+  const fn = actions[el.dataset.act];
+  if (fn) fn(el, e);
+});
+
+/* ---------- 参考资产：支持从 Codex 页面 / 本地直接拖入 ---------- */
+document.addEventListener('dragover', (e) => {
+  const strip = e.target.closest && e.target.closest('#assetStrip');
+  if (strip) { e.preventDefault(); strip.classList.add('bg-ink-raise'); }
+});
+document.addEventListener('dragleave', (e) => {
+  const strip = e.target.closest && e.target.closest('#assetStrip');
+  if (strip && !strip.contains(e.relatedTarget)) strip.classList.remove('bg-ink-raise');
+});
+document.addEventListener('drop', (e) => {
+  const strip = e.target.closest && e.target.closest('#assetStrip');
+  if (!strip) return;
+  e.preventDefault();
+  strip.classList.remove('bg-ink-raise');
+  handleAssetDrop(e.dataTransfer);
+});
+async function handleAssetDrop(dt) {
+  // 1) 本地文件拖入
+  const files = [...(dt.files || [])];
+  if (files.length) {
+    await validateAndAddAssets(files.map(file => ({ file, name: file.name.replace(/\.[^.]+$/, '') })));
+    return;
+  }
+  // 2) 从其他网页（如 Codex 对话）直接拖入图片：尝试读取图片地址
+  const html = dt.getData('text/html');
+  const urlMatch = html && html.match(/src="([^"]+)"/);
+  const url = (urlMatch && urlMatch[1]) || dt.getData('text/uri-list') || dt.getData('text/plain');
+  if (url && /^(https?:|data:image|blob:)/.test(url.trim())) {
+    try {
+      const res = await fetch(url.trim());
+      if (!res.ok) throw new Error('图片下载失败');
+      const blob = await res.blob();
+      await validateAndAddAssets([{ file: blob, name: `资产${state.assets.length + 1}` }]);
+    } catch (err) {
+      toast('无法直接读取该图片（跨域限制），请在 Codex 中右键保存后拖入，或截图后拖入', 'warn');
+    }
+  } else {
+    toast('未识别到图片，请拖入图片文件或页面中的图像', 'warn');
+  }
+}
+
+/* 项目名编辑 */
+$('#projectName').addEventListener('change', (e) => {
+  state.projectName = e.target.value.trim() || '未命名短剧项目';
+  save();
+});
+
+/* 宫格布局手动指定（查看器内的行/列选择器，事件委托） */
+document.addEventListener('change', (e) => {
+  if (e.target.id !== 'gridColsSel' && e.target.id !== 'gridRowsSel') return;
+  const b = activeBatch(); const v = b && curVersion(b);
+  if (!v) return;
+  const c = Number($('#gridColsSel').value) || null;
+  const r = Number($('#gridRowsSel').value) || null;
+  const layout = { cols: c || gridLayout(v.shots.length).cols, rows: r || gridLayout(v.shots.length).rows };
+  if (layout.cols * layout.rows < v.shots.length) {
+    toast('宫格容量小于镜头数量，布局未保存', 'warn');
+    renderWorkspace();
+    return;
+  }
+  v.gridCols = c; v.gridRows = r;
+  save(); renderWorkspace();
+  toast(c || r ? `宫格布局已设为 ${c || '估'} 列 × ${r || '估'} 行` : '已恢复自动估算布局');
+});
+
+/* 恢复备份 */
+$('#restoreFile').addEventListener('change', (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (!data || !Array.isArray(data.batches)) throw new Error('bad');
+      state = Object.assign({ projectName: '', shots: [], batches: [], assets: [], runs: [], activeBatchId: null, assetDefaultType: 'character', assetsExpanded: false, aspectRatio: '16:9', split: 50 }, data);
+      upgradeLoadedState();
+      save(); renderAll(); toast('备份已恢复');
+    } catch (err) { toast('备份文件无法识别', 'err'); }
+  };
+  reader.readAsText(f);
+  e.target.value = '';
+});
+
+/* 回填弹窗：图片选择与拖拽 */
+$('#fillbackImage').addEventListener('change', (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  readImageFile(f, (dataUrl) => {
+    fillbackImageData = dataUrl;
+    $('#fillbackPreviewImg').src = dataUrl;
+    $('#fillbackPreview').classList.remove('hidden');
+  });
+});
+const dz = $('#dropzone');
+['dragover', 'dragenter'].forEach(ev => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('border-neutral-300'); }));
+['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('border-neutral-300'); }));
+dz.addEventListener('drop', (e) => {
+  const f = e.dataTransfer.files[0];
+  if (f && f.type.startsWith('image/')) {
+    readImageFile(f, (dataUrl) => {
+      fillbackImageData = dataUrl;
+      $('#fillbackPreviewImg').src = dataUrl;
+      $('#fillbackPreview').classList.remove('hidden');
+    });
+  }
+});
+
+/* Esc 关闭弹窗 / 注释浮窗；回车提交注释；重命名输入框：回车提交、Esc 取消 */
+document.addEventListener('keydown', (e) => {
+  if (e.target && e.target.id === 'assetRenameInput') {
+    if (e.key === 'Enter') commitAssetRename(false);
+    else if (e.key === 'Escape') commitAssetRename(true);
+    return;
+  }
+  if (e.key === 'Escape') {
+    hideAnnotPop();
+    ['lightbox', 'issueModal', 'confirmModal', 'fillbackModal', 'newBatchModal', 'importModal'].forEach(closeModal);
+  }
+  if (e.key === 'Enter' && e.target === $('#annotPopInput') && !$('#annotPop').classList.contains('hidden')) {
+    actions['annot-submit']();
+  }
+});
+
+/* ---------- 渲染入口 ---------- */
+function renderAll() {
+  renderHeader();
+  renderBatchTabs();
+  renderWorkspace();
+}
+
+/* 初始化：本地服务为空时自动迁移旧 localStorage；原数据保留，不做删除 */
+async function initApp() {
+  if (!SERVER_MODE) {
+    loadLegacy();
+    upgradeLoadedState();
+    renderAll();
+    return;
+  }
+  try {
+    let payload = await fetch('/api/bootstrap', { cache: 'no-store' }).then(r => r.json());
+    const legacy = localStorage.getItem(STORAGE_KEY);
+    if (payload.empty && legacy) {
+      try {
+        const migration = await fetch('/api/migrations/local-storage', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ state: JSON.parse(legacy) }),
+        }).then(r => r.json());
+        if (migration.state) {
+          payload = { state: migration.state, empty: false };
+          if (migration.migrated) toast('旧浏览器数据已迁移到本地服务，原副本仍保留');
+        }
+      } catch (error) { toast('旧数据迁移失败，可继续使用空项目或稍后恢复备份', 'warn'); }
+    }
+    state = Object.assign(state, payload.state || {});
+    state.runs = state.runs || [];
+    upgradeLoadedState();
+    serverRevision = Number(state.revision || 0);
+    save();
+    renderAll();
+    pollTimer = setInterval(() => {
+      if (!document.hidden) refreshFromServer(false).catch(() => {});
+    }, 2000);
+  } catch (error) {
+    renderAll();
+    toast('无法连接本地服务，请重新启动分镜审核台', 'err');
+  }
+}
+initApp();
+</script>
+</body>
+</html>

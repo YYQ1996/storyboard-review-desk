@@ -1,0 +1,23 @@
+{
+  "name": "storyboard-review-desk",
+  "version": "0.1.8",
+  "description": "Connect Codex to the local Storyboard Review Desk for isolated batch generation and automatic version fillback.",
+  "author": {
+    "name": "YIQI"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "分镜审核台",
+    "shortDescription": "读取独立分镜批次并将宫格图自动回填审核台。",
+    "longDescription": "连接本地分镜审核台，按批次读取结构化剧本、画幅和人物/场景/道具参考资产，配合 Codex 内置图片生成能力生成宫格图，并把新版本自动回填到审核台。",
+    "developerName": "YIQI",
+    "category": "Productivity",
+    "screenshots": ["./assets/screenshot.png"],
+    "capabilities": ["Read", "Write", "Interactive"],
+    "defaultPrompt": [
+      "读取分镜审核台当前批次并生成宫格图。",
+      "按审核意见返修当前批次并自动回填。"
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}

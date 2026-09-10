@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "storyboard_review_desk": {
+      "command": "node",
+      "args": [
+        "./server.mjs"
+      ],
+      "enabled": true,
+      "startup_timeout_sec": 30,
+      "env": {
+        "STORYBOARD_REVIEW_URL": "http://127.0.0.1:43127"
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "storyboard-review-desk",
+  "version": "0.1.8",
+  "description": "面向 AI 短剧创作者的分镜宫格审核、返修与 Codex 自动回填工具。",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server/server.mjs",
+    "test": "node --test --test-isolation=none tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.24.3",
+    "zod": "^3.25.76"
+  }
+}
