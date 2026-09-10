@@ -30,7 +30,7 @@
 
 > **下载 Windows 工具包并解压 → 双击 `一键安装.cmd` → 重启 Codex → 双击 `一键启动.cmd`**
 
-[下载最新版工具包](../../releases/latest) · [查看完整安装说明](docs/安装与使用.md)
+[下载最新版工具包](https://github.com/YYQ1996/storyboard-review-desk/releases/latest) · [查看完整安装说明](docs/安装与使用.md)
 
 工具包已经包含运行环境和插件依赖。学员不需要安装 Git、GitHub、Node.js、Python，也不需要打开命令行；只需提前安装并登录 Codex Windows 客户端。
 
