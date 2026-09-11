@@ -85,7 +85,7 @@ const server = createServer(async (request, response) => {
     const path = decodeURIComponent(url.pathname);
 
     if (request.method === 'GET' && path === '/api/health') {
-      return sendJson(response, 200, { ok: true, version: '0.1.8' });
+      return sendJson(response, 200, { ok: true, version: '0.1.9' });
     }
     if (request.method === 'GET' && path === '/api/logs') {
       return sendJson(response, 200, { logs: await recentLogs(url.searchParams.get('limit')) });
