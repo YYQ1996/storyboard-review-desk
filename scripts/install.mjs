@@ -16,7 +16,9 @@ const marketplacePath = join(installHome, '.agents', 'plugins', 'marketplace.jso
 const codexHome = process.env.CODEX_HOME
   ? resolve(process.env.CODEX_HOME)
   : join(installHome, '.codex');
+const localAppData = process.env.LOCALAPPDATA || join(installHome, 'AppData', 'Local');
 const bundledNode = join(rootDir, 'runtime', 'node.exe');
+const installerCodex = join(rootDir, 'runtime', 'codex-cli.exe');
 const pluginServer = join(pluginSource, 'server.mjs');
 const logPath = join(rootDir, 'install-log.txt');
 const codexEnv = { ...process.env, CODEX_HOME: codexHome };
@@ -50,20 +52,68 @@ function invokeCodex(candidate, args) {
   });
 }
 
+function discoverCodexAppRoots() {
+  if (process.env.STORYBOARD_TEST_CODEX_APP_ROOT) {
+    return [resolve(process.env.STORYBOARD_TEST_CODEX_APP_ROOT)];
+  }
+
+  const powershell = process.env.SystemRoot
+    ? join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+    : 'powershell.exe';
+  const script = [
+    "$package = Get-AppxPackage -Name OpenAI.Codex -ErrorAction SilentlyContinue | Select-Object -First 1",
+    "if ($package) { [Console]::Out.WriteLine($package.InstallLocation) }",
+  ].join('; ');
+  const result = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-Command', script], {
+    cwd: rootDir,
+    encoding: 'utf8',
+    windowsHide: true,
+    env: codexEnv,
+  });
+  if (result.status !== 0) {
+    writeLog('WARN', `无法查询 Codex Windows 应用位置：${result.error?.message || result.stderr || `exit ${result.status}`}`);
+    return [];
+  }
+  return result.stdout.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+}
+
+function prepareCodexFromDesktopApp() {
+  for (const appRoot of discoverCodexAppRoots()) {
+    for (const relativePath of [join('app', 'resources', 'codex.exe'), join('resources', 'codex.exe')]) {
+      const source = join(appRoot, relativePath);
+      if (!existsSync(source)) continue;
+      try {
+        copyFileSync(source, installerCodex);
+        const result = invokeCodex(installerCodex, ['--version']);
+        if (!result.error && result.status === 0) {
+          writeLog('INFO', `已从 Codex Windows 应用准备安装组件：${source}`);
+          return installerCodex;
+        }
+        writeLog('WARN', `Codex Windows 应用组件无法运行：${result.error?.message || result.stderr || `exit ${result.status}`}`);
+      } catch (error) {
+        writeLog('WARN', `无法准备 Codex Windows 应用组件：${error.message}`);
+      }
+    }
+  }
+  return null;
+}
+
 function findCodex() {
   const candidates = [
     process.env.CODEX_CLI,
+    join(codexHome, 'plugins', '.plugin-appserver', 'codex.exe'),
     'codex',
     process.env.CODEX_INSTALL_DIR && join(process.env.CODEX_INSTALL_DIR, 'codex.exe'),
-    process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'Programs', 'OpenAI', 'Codex', 'bin', 'codex.exe'),
-    process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'OpenAI', 'Codex', 'bin', 'codex.exe'),
-    join(process.env.LOCALAPPDATA || '', 'OpenAI', 'Codex', 'manual-cli', 'codex.exe'),
+    join(localAppData, 'Programs', 'OpenAI', 'Codex', 'bin', 'codex.exe'),
+    join(localAppData, 'OpenAI', 'Codex', 'bin', 'codex.exe'),
+    join(localAppData, 'OpenAI', 'Codex', 'manual-cli', 'codex.exe'),
+    installerCodex,
   ].filter(Boolean);
   for (const candidate of candidates) {
     const result = invokeCodex(candidate, ['--version']);
     if (!result.error && result.status === 0) return candidate;
   }
-  return null;
+  return prepareCodexFromDesktopApp();
 }
 
 function readMarketplace() {
@@ -88,7 +138,7 @@ mkdirSync(codexHome, { recursive: true });
 info(`Codex 配置目录：${codexHome}`);
 
 const codex = findCodex();
-if (!codex) fail('未找到 Codex Windows 客户端。请先安装并登录 Codex，再重新运行一键安装。');
+if (!codex) fail('未找到可供安装器调用的 Codex Windows 组件。请确认 Windows 版 ChatGPT/Codex App 已安装、已登录并至少启动过一次；如果 App 正在运行，请发送 install-log.txt。');
 
 info(`Codex 命令位置：${codex}`);
 info('1/4 正在部署分镜审核台个人插件...');
@@ -139,5 +189,5 @@ if (list.status !== 0 || !list.stdout.includes(`${pluginName}@${marketplace.name
   fail(`插件未出现在 Codex 已安装列表中，请重新运行安装脚本。\n${list.error?.message || list.stderr || ''}`);
 }
 
-info('\n[成功] 分镜审核台 v0.1.9 与个人插件均已就绪。');
+info('\n[成功] 分镜审核台 v0.1.10 与个人插件均已就绪。');
 info('下一步：完整退出并重新打开 Codex，然后双击“一键启动.cmd”。');
