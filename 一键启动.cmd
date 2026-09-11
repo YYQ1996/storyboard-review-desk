@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0"
-title 分镜审核台 v0.1.8
+title 分镜审核台 v0.1.9
 
 if not exist "runtime\node.exe" (
   echo [失败] 工具包不完整：缺少 runtime\node.exe

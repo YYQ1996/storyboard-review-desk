@@ -3,5 +3,6 @@ data/
 release/
 runtime/
 *.log
+install-log.txt
 Thumbs.db
 .DS_Store

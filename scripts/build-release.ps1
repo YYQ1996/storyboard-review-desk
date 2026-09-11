@@ -46,6 +46,17 @@ foreach ($item in $sourceItems) {
   Copy-Item -LiteralPath $source -Destination $destination -Recurse -Force
 }
 
+# cmd.exe can misparse UTF-8 batch files that contain only LF line endings.
+# Normalize the student-facing entry points inside every Windows package.
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+foreach ($batchName in @('一键安装.cmd', '一键启动.cmd')) {
+  $batchPath = Join-Path $packageRoot $batchName
+  $batchText = [System.IO.File]::ReadAllText($batchPath, [System.Text.Encoding]::UTF8)
+  $batchText = $batchText -replace "`r?`n", "`r`n"
+  if (-not $batchText.EndsWith("`r`n")) { $batchText += "`r`n" }
+  [System.IO.File]::WriteAllText($batchPath, $batchText, $utf8NoBom)
+}
+
 Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/安装与使用.md') -Destination (Join-Path $packageRoot '使用说明.md') -Force
 
 if (-not (Test-Path -LiteralPath $nodeArchive)) {

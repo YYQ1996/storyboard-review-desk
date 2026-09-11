@@ -4,7 +4,7 @@
 
 **把分镜脚本、参考资产与 Codex 串成一条可审核、可返修、可回填的宫格工作流。**
 
-`Windows` · `Codex 个人插件` · `本地数据` · `v0.1.8`
+`Windows` · `Codex 个人插件` · `本地数据` · `v0.1.9`
 
 <img src="docs/images/app-overview.png" alt="分镜审核台产品界面" width="100%" />
 
@@ -33,6 +33,8 @@
 [下载最新版工具包](https://github.com/YYQ1996/storyboard-review-desk/releases/latest) · [查看完整安装说明](docs/安装与使用.md)
 
 工具包已经包含运行环境和插件依赖。学员不需要安装 Git、GitHub、Node.js、Python，也不需要打开命令行；只需提前安装并登录 Codex Windows 客户端。
+
+> `v0.1.9` 已修复部分干净电脑双击安装闪退、Codex 无法解析 `CODEX_HOME` 的问题。请勿继续分发旧版 `v0.1.8` 安装包。
 
 ## 第一次使用
 
@@ -102,4 +104,4 @@ node --test --test-isolation=none tests/*.test.mjs
 
 ---
 
-当前交付版：`v0.1.8`。本版本作为课程学员使用版冻结；后续需求进入下一迭代，不影响本版安装与使用。
+当前交付版：`v0.1.9`。本版本是基于 `v0.1.8` 功能版发布的安装可靠性修复版；后续功能需求进入下一迭代。

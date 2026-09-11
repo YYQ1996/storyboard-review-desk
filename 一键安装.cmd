@@ -1,23 +1,34 @@
 @echo off
+setlocal
 chcp 65001 >nul
 cd /d "%~dp0"
-title 分镜审核台 - 一键安装
+title Storyboard Review Desk - Installer
 
 if not exist "runtime\node.exe" (
-  echo [失败] 工具包不完整：缺少 runtime\node.exe
-  echo 请重新下载并完整解压 Windows 工具包。
-  pause
-  exit /b 1
+  echo [ERROR] Missing runtime\node.exe.
+  echo Please download the complete Windows package and extract it before installation.
+  goto :failed
 )
 
 "runtime\node.exe" "scripts\install.mjs"
-if errorlevel 1 (
+set "INSTALL_EXIT=%ERRORLEVEL%"
+if not "%INSTALL_EXIT%"=="0" (
   echo.
-  echo 安装未完成，请根据上方提示处理后重试。
-  pause
-  exit /b 1
+  echo Installation did not complete. See the message above and install-log.txt.
+  goto :failed
 )
 
 echo.
-echo 安装完成。请完整退出并重新打开 Codex，再双击“一键启动.cmd”。
-pause
+echo Installation complete. Restart Codex, then run the one-click start script.
+if "%STORYBOARD_INSTALL_NONINTERACTIVE%"=="1" exit /b 0
+echo Press any key to close this window.
+pause >nul
+exit /b 0
+
+:failed
+echo.
+echo The installer will stay open so you can photograph this error.
+if "%STORYBOARD_INSTALL_NONINTERACTIVE%"=="1" exit /b 1
+echo Press any key to close this window.
+pause >nul
+exit /b 1
