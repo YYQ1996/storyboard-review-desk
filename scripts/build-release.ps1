@@ -3,10 +3,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $releaseRoot = Join-Path $projectRoot 'release'
 $stagingRoot = Join-Path $releaseRoot '.staging'
-$version = (Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw | ConvertFrom-Json).version
+$version = (Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version
 $packageName = "分镜审核台-v$version-Windows"
 $packageRoot = Join-Path $stagingRoot $packageName
 $zipPath = Join-Path $releaseRoot "$packageName.zip"
@@ -48,7 +49,6 @@ foreach ($item in $sourceItems) {
 
 # cmd.exe can misparse UTF-8 batch files that contain only LF line endings.
 # Normalize the student-facing entry points inside every Windows package.
-$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 foreach ($batchName in @('一键安装.cmd', '一键启动.cmd')) {
   $batchPath = Join-Path $packageRoot $batchName
   $batchText = [System.IO.File]::ReadAllText($batchPath, [System.Text.Encoding]::UTF8)
@@ -77,7 +77,7 @@ Copy-Item -LiteralPath (Join-Path $nodeExtract 'LICENSE') -Destination (Join-Pat
 if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
 Compress-Archive -LiteralPath $packageRoot -DestinationPath $zipPath -CompressionLevel Optimal
 $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash
-Set-Content -LiteralPath "$zipPath.sha256.txt" -Value "$hash  $([System.IO.Path]::GetFileName($zipPath))" -Encoding ascii
+[System.IO.File]::WriteAllText("$zipPath.sha256.txt", "$hash  $([System.IO.Path]::GetFileName($zipPath))`r`n", $utf8NoBom)
 
 Write-Host "发布包已生成：$zipPath"
 Write-Host "SHA256：$hash"
