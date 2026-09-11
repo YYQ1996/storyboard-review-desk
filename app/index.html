@@ -1156,7 +1156,7 @@ function renderReviewBar() {
   if (b.status === 'pending') {
     bar.innerHTML = `
     <div class="px-4 lg:px-6 py-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-      <p class="flex-1 text-[13px] text-ink-mute leading-relaxed"><span class="text-blue-300 font-medium">第 1 步 · 生图：</span>创建任务指令后，在本项目中新建一个 Codex 任务并粘贴发送。推荐选择 <span class="text-neutral-200">GPT-5.6 Luna · 低推理</span>，插件完成生图后会自动回填。${runText ? `<span class="block mt-1 text-neutral-300">当前状态：${esc(runText)}</span>` : ''}</p>
+      <p class="flex-1 text-[13px] text-ink-mute leading-relaxed"><span class="text-blue-300 font-medium">第 1 步 · 生图：</span>创建任务指令后，到 Codex 选择<span class="text-neutral-200">工作 · 无项目 · 本地</span>并新建任务，再粘贴发送。推荐选择 <span class="text-neutral-200">GPT-5.6 Luna · 低推理</span>，插件完成生图后会自动回填。${runText ? `<span class="block mt-1 text-neutral-300">当前状态：${esc(runText)}</span>` : ''}</p>
       <div class="flex gap-2 shrink-0 flex-wrap">
         <button data-act="create-codex-run" class="u-trans h-10 px-5 rounded-full text-[13.5px] font-medium bg-neutral-100 text-ink-bg hover:bg-white inline-flex items-center gap-2">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 011-1h10"/></svg>
@@ -1684,7 +1684,7 @@ const actions = {
         throw new Error(result.error || '创建任务失败');
       }
       await refreshFromServer();
-      await copyText(result.instruction, '任务指令已复制；请在本项目中新建一个 Codex 任务并粘贴发送');
+      await copyText(result.instruction, '任务指令已复制；请到 Codex 选择“工作 · 无项目 · 本地”新建任务并粘贴发送');
     } catch (error) { toast(`无法创建 Codex 任务：${error.message}`, 'err'); }
   },
   'pass-batch': () => {
