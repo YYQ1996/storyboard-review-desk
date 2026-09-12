@@ -160,6 +160,9 @@ const server = createServer(async (request, response) => {
       if (target && await serveFile(response, target)) return;
       return sendJson(response, 404, { error: '文件不存在' });
     }
+    if (request.method === 'GET' && path === '/assets/brand-icon.png') {
+      if (await serveFile(response, join(appDir, 'assets', 'brand-icon.png'))) return;
+    }
     if (request.method === 'GET' && (path === '/' || path === '/index.html')) {
       if (await serveFile(response, join(appDir, 'index.html'))) return;
     }

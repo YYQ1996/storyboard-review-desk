@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>分镜审核台 · AI 短剧工作流</title>
+<link rel="icon" type="image/png" href="assets/brand-icon.png" />
 <!-- Tailwind CSS v3 CDN -->
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
@@ -76,11 +77,11 @@
 <header class="shrink-0 h-14 px-4 lg:px-6 flex items-center gap-3 border-b border-ink-line bg-ink-bg">
   <!-- 标识 -->
   <div class="flex items-center gap-2.5 shrink-0">
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f5f5f5" stroke-width="1.6">
-      <rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/>
-      <rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/>
-    </svg>
-    <h1 class="text-[15px] font-semibold tracking-wide">分镜审核台</h1>
+    <img src="assets/brand-icon.png" alt="分镜审核台图标" class="w-8 h-8 object-contain" />
+    <div class="leading-none">
+      <h1 class="text-[15px] font-semibold tracking-wide">分镜审核台</h1>
+      <p class="mt-1 text-[9.5px] tracking-wide text-ink-faint">YIQI玩AI</p>
+    </div>
   </div>
   <!-- 项目名（可编辑） -->
   <input id="projectName" type="text" spellcheck="false"
@@ -342,6 +343,31 @@ let saveTimer = null;
 let saveChain = Promise.resolve();
 let pollTimer = null;
 
+function captureReviewEditor() {
+  const input = $('#feedbackInput');
+  if (!input || document.activeElement !== input) return null;
+  return {
+    batchId: state.activeBatchId,
+    value: input.value,
+    selectionStart: input.selectionStart,
+    selectionEnd: input.selectionEnd,
+    scrollTop: input.scrollTop,
+  };
+}
+
+function restoreReviewEditor(snapshot) {
+  if (!snapshot || snapshot.batchId !== state.activeBatchId) return;
+  const batch = activeBatch();
+  const input = $('#feedbackInput');
+  if (!batch || !input) return;
+  batch.draft = snapshot.value;
+  input.value = snapshot.value;
+  input.focus({ preventScroll: true });
+  input.setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd);
+  input.scrollTop = snapshot.scrollTop;
+  save();
+}
+
 function save() {
   if (!SERVER_MODE) {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
@@ -402,10 +428,12 @@ async function refreshFromServer(silent = true) {
   if (!SERVER_MODE || saveTimer) return;
   const payload = await fetch('/api/bootstrap', { cache: 'no-store' }).then(r => r.json());
   if (Number(payload.state.revision || 0) <= serverRevision) return;
+  const reviewEditor = captureReviewEditor();
   const previousCompleted = new Set((state.runs || []).filter(r => r.status === 'completed').map(r => r.id));
   state = payload.state;
   serverRevision = Number(state.revision || 0);
   renderAll();
+  restoreReviewEditor(reviewEditor);
   const completed = (state.runs || []).find(r => r.status === 'completed' && !previousCompleted.has(r.id));
   if (!silent && completed) toast('Codex 已回填新版本，开始审核');
 }
