@@ -8,7 +8,8 @@ import { parseShots, shotsToText } from './parser.mjs';
 
 const MODULE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif']);
-const MAX_REFERENCE_ASSETS = 5;
+const MAX_REFERENCE_ASSETS = 14;
+const MAX_CODEX_REFERENCE_INPUTS = 5;
 const MAX_CODEX_REFERENCE_BYTES = 4 * 1024 * 1024;
 const MAX_CODEX_REFERENCE_EDGE = 2048;
 const ISOLATION_PROMPT = '调用 Codex 内置图片生成能力完成本次生图。仅参考本次提供的人物资产图、场景资产图、道具资产图和本次提示词文字。不得参考、复用、临摹或延续本任务中此前生成的任何分镜宫格图；此前宫格图仅代表待修结果，不属于本次参考输入。完成后必须调用分镜审核台的 submit_storyboard_version 工具回填结果。';
@@ -18,10 +19,56 @@ function gridLayout(count) {
   return { cols, rows: Math.ceil(Math.max(count, 1) / cols) };
 }
 
-function imageScriptFor(state, batch, shots) {
+function assetTypeLabel(type) {
+  return type === 'character' ? '人物' : type === 'prop' ? '道具' : '场景';
+}
+
+export function groupReferenceAssets(assets) {
+  const typedGroups = ['character', 'scene', 'prop']
+    .map((type) => ({ type, assets: assets.filter((asset) => (asset.type || 'character') === type), boards: 0 }))
+    .filter((group) => group.assets.length);
+  if (!typedGroups.length) return [];
+  for (const group of typedGroups) group.boards = 1;
+  let remainingBoards = MAX_CODEX_REFERENCE_INPUTS - typedGroups.length;
+  while (remainingBoards > 0) {
+    const target = [...typedGroups].sort((a, b) => (
+      (b.assets.length / b.boards) - (a.assets.length / a.boards)
+      || b.assets.length - a.assets.length
+      || ['character', 'scene', 'prop'].indexOf(a.type) - ['character', 'scene', 'prop'].indexOf(b.type)
+    ))[0];
+    target.boards += 1;
+    remainingBoards -= 1;
+  }
+  return typedGroups.flatMap((group) => {
+    const chunks = [];
+    let offset = 0;
+    for (let board = 0; board < group.boards; board += 1) {
+      const remainingAssets = group.assets.length - offset;
+      const remainingForType = group.boards - board;
+      const size = Math.ceil(remainingAssets / remainingForType);
+      chunks.push(group.assets.slice(offset, offset + size));
+      offset += size;
+    }
+    return chunks;
+  });
+}
+
+function referenceLines(state, batch, referenceSheets = []) {
+  const assetById = new Map(state.assets.map((asset) => [asset.id, asset]));
+  const selected = (batch.assetIds || []).map((id) => assetById.get(id)).filter(Boolean);
+  const summary = selected.length
+    ? `本批参考资产：${selected.map((asset) => `${assetTypeLabel(asset.type)}：${asset.name || '未命名资产'}`).join('；')}。`
+    : '本批参考资产：无。';
+  if (!referenceSheets.length) return [summary];
+  return [
+    summary,
+    `参考资产索引板：以上 ${selected.length} 项资产已按人物、场景、道具分类合并为 ${referenceSheets.length} 张索引板，每张索引板只包含一种资产类型。索引板每格左上角的资产编号与下列清单一一对应；生成镜头时按分镜脚本中的人物、场景和道具名称匹配对应编号，不得混用。`,
+    ...referenceSheets.map((sheet, index) => `索引板${index + 1}（${sheet.typeLabel}）：${sheet.items.map((item) => `${item.label}=${assetTypeLabel(item.type)}：${item.name || '未命名资产'}`).join('；')}。`),
+  ];
+}
+
+function imageScriptFor(state, batch, shots, referenceSheets = []) {
   const { cols, rows } = gridLayout(shots.length);
-  const assetNames = new Map(state.assets.map((asset) => [asset.id, `${asset.type === 'character' ? '人物' : asset.type === 'prop' ? '道具' : '场景'}：${asset.name || '未命名资产'}`]));
-  const selectedAssets = (batch.assetIds || []).map((id) => assetNames.get(id)).filter(Boolean);
   return [
     '分镜脚本',
     `项目：${state.projectName}`,
@@ -29,7 +76,7 @@ function imageScriptFor(state, batch, shots) {
     `宫格布局：${cols}列×${rows}行，按镜号从左到右、从上到下排列，全部镜头合并在一张图中。`,
     `单格画幅：${state.aspectRatio === '9:16' ? '9:16竖版' : '16:9横版'}。`,
     '画格标注：左上角只显示“#镜号”。底部只原样显示本镜实际存在的台词、心声或音效文案；缺失项完全省略，不显示字段标签，不补“无”，不输出“无/无/”或空分隔符；本镜完全无声音时不显示底栏文字。',
-    selectedAssets.length ? `本批参考资产：${selectedAssets.join('；')}。` : '本批参考资产：无。',
+    ...referenceLines(state, batch, referenceSheets),
     '',
     shotsToText(shots, false),
   ].join('\n');
@@ -263,6 +310,7 @@ export function createStore(options = {}) {
   const dataDir = resolve(options.dataDir || join(rootDir, 'data'));
   const stateFile = join(dataDir, 'project.json');
   const assetDir = join(dataDir, 'assets');
+  const referenceDir = join(dataDir, 'reference-sheets');
   const versionDir = join(dataDir, 'versions');
   let writeQueue = Promise.resolve();
 
@@ -270,6 +318,7 @@ export function createStore(options = {}) {
     await Promise.all([
       mkdir(dataDir, { recursive: true }),
       mkdir(assetDir, { recursive: true }),
+      mkdir(referenceDir, { recursive: true }),
       mkdir(versionDir, { recursive: true }),
     ]);
   }
@@ -293,11 +342,52 @@ export function createStore(options = {}) {
     try { validateImageBuffer(decoded.buffer); }
     catch (error) { throw new ValidationError(error.message); }
     const hash = createHash('sha256').update(decoded.buffer).digest('hex').slice(0, 24);
-    const folder = kind === 'assets' ? assetDir : versionDir;
+    const folder = kind === 'assets' ? assetDir : kind === 'reference-sheets' ? referenceDir : versionDir;
     const fileName = `${hash}${extension}`;
     const target = join(folder, fileName);
     try { await access(target); } catch { await writeFile(target, decoded.buffer); }
     return `/files/${kind}/${fileName}`;
+  }
+
+  async function prepareReferenceSheets(assets, incomingSheets) {
+    if (assets.length <= MAX_CODEX_REFERENCE_INPUTS) return [];
+    const expectedGroups = groupReferenceAssets(assets);
+    if (!Array.isArray(incomingSheets) || incomingSheets.length !== expectedGroups.length) {
+      throw new ValidationError(`本批 ${assets.length} 项参考资产需要生成 ${expectedGroups.length} 张资产索引板，请重试创建任务`);
+    }
+    let labelIndex = 1;
+    const prepared = [];
+    for (const [sheetIndex, expected] of expectedGroups.entries()) {
+      const incoming = incomingSheets[sheetIndex] || {};
+      const expectedIds = expected.map((asset) => asset.id);
+      if (JSON.stringify(incoming.assetIds || []) !== JSON.stringify(expectedIds)) {
+        throw new ValidationError('资产索引板与本批参考资产不一致，请重新创建任务');
+      }
+      const decoded = decodeDataUrl(incoming.dataUrl);
+      if (!decoded) throw new ValidationError(`第 ${sheetIndex + 1} 张资产索引板数据无效`);
+      const info = validateImageBuffer(decoded.buffer);
+      if (decoded.buffer.length > MAX_CODEX_REFERENCE_BYTES) throw new ValidationError(`第 ${sheetIndex + 1} 张资产索引板超过 4MB`);
+      if (info.width > MAX_CODEX_REFERENCE_EDGE || info.height > MAX_CODEX_REFERENCE_EDGE) {
+        throw new ValidationError(`第 ${sheetIndex + 1} 张资产索引板最长边超过 2048px`);
+      }
+      const types = [...new Set(expected.map((asset) => assetTypeLabel(asset.type)))];
+      const items = expected.map((asset) => ({
+        id: asset.id,
+        label: `A${String(labelIndex++).padStart(2, '0')}`,
+        name: asset.name || '未命名资产',
+        type: asset.type || 'character',
+      }));
+      prepared.push({
+        id: `reference-sheet-${sheetIndex + 1}`,
+        name: `资产索引板${sheetIndex + 1}`,
+        type: 'reference-sheet',
+        typeLabel: types.join('+'),
+        sourceAssetIds: expectedIds,
+        items,
+        img: await persistImage(incoming.dataUrl, 'reference-sheets'),
+      });
+    }
+    return prepared;
   }
 
   async function normalizeState(input) {
@@ -449,7 +539,7 @@ export function createStore(options = {}) {
       issues.push({
         id: 'reference-limit',
         name: '参考资产数量',
-        reason: `本批已选 ${assets.length} 张，Codex 内置生图单次最多接受 ${MAX_REFERENCE_ASSETS} 张；请先取消 ${assets.length - MAX_REFERENCE_ASSETS} 张`,
+        reason: `本批已选 ${assets.length} 张，审核台最多支持 ${MAX_REFERENCE_ASSETS} 张参考资产；请先取消 ${assets.length - MAX_REFERENCE_ASSETS} 张`,
       });
     }
     const fileIssues = (await Promise.all(assets.map(async (asset) => {
@@ -481,7 +571,7 @@ export function createStore(options = {}) {
     return validateAssetsForBatch(state, batch);
   }
 
-  async function createRun(batchId, mode = 'first') {
+  async function createRun(batchId, mode = 'first', incomingReferenceSheets = []) {
     return enqueue(async () => {
       const state = await readState();
       const batch = state.batches.find((item) => item.id === batchId);
@@ -498,6 +588,9 @@ export function createStore(options = {}) {
       if (mode === 'revision' && !feedback) throw new ValidationError('请先填写本轮返修意见');
       const token = randomBytes(24).toString('hex');
       const sourceScriptText = shotsToText(shots, false);
+      const selectedAssetIds = new Set(batch.assetIds || []);
+      const selectedAssets = state.assets.filter((asset) => selectedAssetIds.has(asset.id));
+      const referenceSheets = await prepareReferenceSheets(selectedAssets, incomingReferenceSheets);
       const run = {
         id: `run_${randomUUID()}`,
         token,
@@ -513,10 +606,12 @@ export function createStore(options = {}) {
         sourceShotNos: shots.map((shot) => shot.no),
         rangeStart: Number(batch.rangeStart || shots[0]?.no || 1),
         assetIds: [...(batch.assetIds || [])],
+        referenceMode: referenceSheets.length ? 'index-sheet' : 'direct',
+        referenceSheets,
         aspectRatio: state.aspectRatio === '9:16' ? '9:16' : '16:9',
         events: [{ at: Date.now(), type: 'created', status: 'ready' }],
       };
-      if (mode === 'first') run.imageScript = imageScriptFor(state, { ...batch, assetIds: run.assetIds }, shots);
+      if (mode === 'first') run.imageScript = imageScriptFor(state, { ...batch, assetIds: run.assetIds }, shots, referenceSheets);
       state.runs.push(run);
       state.revision += 1;
       state.updatedAt = Date.now();
@@ -546,7 +641,7 @@ export function createStore(options = {}) {
     const assetValidation = await validateAssetsForBatch(state, { ...batch, assetIds: run.assetIds || batch.assetIds });
     if (!assetValidation.valid) throw new ValidationError(`参考资产校验未通过，共 ${assetValidation.issues.length} 项问题，请一次处理完后重试`, assetValidation.issues);
     const selected = new Set(run.assetIds || batch.assetIds || []);
-    const assets = state.assets
+    const sourceAssets = state.assets
       .filter((asset) => selected.has(asset.id))
       .map((asset) => ({
         id: asset.id,
@@ -554,6 +649,15 @@ export function createStore(options = {}) {
         type: asset.type,
         path: resolvePublicFile(asset.img),
       }));
+    const assets = run.referenceSheets?.length
+      ? run.referenceSheets.map((sheet) => ({
+        id: sheet.id,
+        name: `${sheet.name}（${sheet.typeLabel}）`,
+        type: sheet.type,
+        path: resolvePublicFile(sheet.img),
+        sourceAssetIds: sheet.sourceAssetIds,
+      }))
+      : sourceAssets;
     const layout = gridLayout(shots.length);
     return {
       runId: run.id,
@@ -567,13 +671,17 @@ export function createStore(options = {}) {
       aspectRatio: run.aspectRatio || (state.aspectRatio === '9:16' ? '9:16' : '16:9'),
       scriptText: shotsToText(shots, false),
       imageScript: run.mode === 'first'
-        ? imageScriptFor({ ...state, aspectRatio: run.aspectRatio || state.aspectRatio }, { ...runBatch, assetIds: run.assetIds || batch.assetIds }, shots)
-        : (run.preparedScriptText ? imageScriptFor({ ...state, aspectRatio: run.aspectRatio || state.aspectRatio }, { ...runBatch, assetIds: run.assetIds || batch.assetIds }, shots) : null),
+        ? imageScriptFor({ ...state, aspectRatio: run.aspectRatio || state.aspectRatio }, { ...runBatch, assetIds: run.assetIds || batch.assetIds }, shots, run.referenceSheets || [])
+        : (run.preparedScriptText ? imageScriptFor({ ...state, aspectRatio: run.aspectRatio || state.aspectRatio }, { ...runBatch, assetIds: run.assetIds || batch.assetIds }, shots, run.referenceSheets || []) : null),
       gridCols: layout.cols,
       gridRows: layout.rows,
       shots,
       feedback: run.feedback,
       assets: assets.filter((asset) => asset.path),
+      referenceMode: run.referenceSheets?.length ? 'index-sheet' : 'direct',
+      referenceAssetCount: sourceAssets.length,
+      referenceInputCount: assets.filter((asset) => asset.path).length,
+      sourceAssets: sourceAssets.map(({ id, name, type }) => ({ id, name, type })),
       isolationRequirement: ISOLATION_PROMPT,
       submissionRequirement: '生成完成后立即调用 submit_storyboard_version，传入相同运行令牌、生成图片绝对路径、宫格行列和幂等键。脚本由审核台使用本次已确认文本落库。',
     };
@@ -604,7 +712,7 @@ export function createStore(options = {}) {
         throw new ValidationError('返修后的分镜脚本没有发生变化；请先把审核意见落实到对应字段');
       }
       run.preparedScriptText = revisedScript;
-      run.preparedImageScript = imageScriptFor(state, { ...batch, assetIds: run.assetIds || batch.assetIds }, revisedShots);
+      run.preparedImageScript = imageScriptFor(state, { ...batch, assetIds: run.assetIds || batch.assetIds }, revisedShots, run.referenceSheets || []);
       run.preparedAt = Date.now();
       run.updatedAt = Date.now();
       run.events = [...(run.events || []), { at: Date.now(), type: 'revision_prepared', status: run.status }];
@@ -746,9 +854,9 @@ export function createStore(options = {}) {
   }
 
   function resolvePublicFile(publicPath) {
-    const match = String(publicPath || '').match(/^\/files\/(assets|versions)\/([^/]+)$/);
+    const match = String(publicPath || '').match(/^\/files\/(assets|reference-sheets|versions)\/([^/]+)$/);
     if (!match) return null;
-    const folder = match[1] === 'assets' ? assetDir : versionDir;
+    const folder = match[1] === 'assets' ? assetDir : match[1] === 'reference-sheets' ? referenceDir : versionDir;
     const target = resolve(folder, match[2]);
     return inside(folder, target) ? target : null;
   }

@@ -3,7 +3,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { collectFinalShotsForExport, ConflictError, createStore, validateImageBuffer, ValidationError } from '../server/store.mjs';
+import { collectFinalShotsForExport, ConflictError, createStore, groupReferenceAssets, validateImageBuffer, ValidationError } from '../server/store.mjs';
 
 const ONE_PIXEL_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
 
@@ -43,6 +43,14 @@ function projectState() {
       { id: 'b2', name: '第2批', status: 'pending', pendingNos: [1], assetIds: [], annotations: [], versions: [], draft: '' },
     ],
   };
+}
+
+function referenceSheetsFor(assets) {
+  const dataUrl = `data:image/png;base64,${ONE_PIXEL_PNG.toString('base64')}`;
+  return groupReferenceAssets(assets).map((group) => ({
+    dataUrl,
+    assetIds: group.map((asset) => asset.id),
+  }));
 }
 
 test('不同批次生成不同令牌且上下文不交叉', async () => {
@@ -148,7 +156,7 @@ test('创建任务前一次返回本批全部坏图', async () => {
   });
 });
 
-test('每批超过 5 张参考图时创建任务被前置拦截', async () => {
+test('6 至 14 张参考图按同类型生成 5 张索引板并适配提示词', async () => {
   const rootDir = await mkdtemp(join(tmpdir(), 'storyboard-reference-limit-'));
   const store = createStore({ rootDir });
   const state = projectState();
@@ -160,10 +168,62 @@ test('每批超过 5 张参考图时创建任务被前置拦截', async () => {
   }));
   state.batches[0].assetIds = state.assets.map((asset) => asset.id);
   await store.replaceProject(state, 0);
+  const groups = groupReferenceAssets(state.assets);
+  assert.equal(groups.length, 5);
+  assert.ok(groups.every((group) => new Set(group.map((asset) => asset.type)).size === 1));
+  const { run } = await store.createRun('b1', 'first', referenceSheetsFor(state.assets));
+  const context = await store.contextForToken(run.token);
+  assert.equal(context.referenceMode, 'index-sheet');
+  assert.equal(context.referenceAssetCount, 6);
+  assert.equal(context.referenceInputCount, 5);
+  assert.equal(context.assets.length, 5);
+  assert.ok(context.assets.every((asset) => asset.type === 'reference-sheet'));
+  assert.match(context.imageScript, /合并为 5 张索引板/);
+  assert.match(context.imageScript, /A01=场景：参考图1/);
+});
+
+test('14 张极端类型分布保持 5 张单类型四宫格且每板不超过 4 项', () => {
+  const assets = [
+    ...Array.from({ length: 12 }, (_, index) => ({ id: `c${index + 1}`, type: 'character' })),
+    { id: 's1', type: 'scene' },
+    { id: 'p1', type: 'prop' },
+  ];
+  const groups = groupReferenceAssets(assets);
+  assert.deepEqual(groups.map((group) => group.length), [4, 4, 4, 1, 1]);
+  assert.ok(groups.every((group) => group.length <= 4));
+  assert.ok(groups.every((group) => new Set(group.map((asset) => asset.type)).size === 1));
+});
+
+test('超过 5 张参考图但缺少索引板时创建任务被拦截', async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), 'storyboard-reference-sheets-required-'));
+  const store = createStore({ rootDir });
+  const state = projectState();
+  state.assets = Array.from({ length: 6 }, (_, index) => ({
+    id: `asset-${index + 1}`,
+    name: `参考图${index + 1}`,
+    type: 'character',
+    img: `data:image/png;base64,${ONE_PIXEL_PNG.toString('base64')}`,
+  }));
+  state.batches[0].assetIds = state.assets.map((asset) => asset.id);
+  await store.replaceProject(state, 0);
+  await assert.rejects(() => store.createRun('b1'), /需要生成 5 张资产索引板/);
+});
+
+test('超过 14 张参考图时创建任务被前置拦截', async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), 'storyboard-reference-max-'));
+  const store = createStore({ rootDir });
+  const state = projectState();
+  state.assets = Array.from({ length: 15 }, (_, index) => ({
+    id: `asset-${index + 1}`,
+    name: `参考图${index + 1}`,
+    type: 'scene',
+    img: `data:image/png;base64,${ONE_PIXEL_PNG.toString('base64')}`,
+  }));
+  state.batches[0].assetIds = state.assets.map((asset) => asset.id);
+  await store.replaceProject(state, 0);
   await assert.rejects(() => store.createRun('b1'), (error) => {
     assert.ok(error instanceof ValidationError);
-    assert.match(error.message, /参考资产校验未通过/);
-    assert.match(error.issues[0].reason, /最多接受 5 张/);
+    assert.match(error.issues[0].reason, /最多支持 14 张/);
     return true;
   });
 });

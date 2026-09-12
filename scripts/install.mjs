@@ -17,11 +17,15 @@ const codexHome = process.env.CODEX_HOME
   ? resolve(process.env.CODEX_HOME)
   : join(installHome, '.codex');
 const localAppData = process.env.LOCALAPPDATA || join(installHome, 'AppData', 'Local');
-const bundledNode = join(rootDir, 'runtime', 'node.exe');
-const installerCodex = join(rootDir, 'runtime', 'codex-cli.exe');
+const bundledNode = process.platform === 'win32' ? join(rootDir, 'runtime', 'node.exe') : process.execPath;
+const installerCodex = join(rootDir, 'runtime', process.platform === 'win32' ? 'codex-cli.exe' : 'codex-cli');
 const pluginServer = join(pluginSource, 'server.mjs');
 const logPath = join(rootDir, 'install-log.txt');
-const codexEnv = { ...process.env, CODEX_HOME: codexHome };
+const codexEnv = {
+  ...process.env,
+  CODEX_HOME: codexHome,
+  ...(process.platform === 'darwin' ? { HOME: installHome } : {}),
+};
 
 try {
   writeFileSync(logPath, `分镜审核台安装日志\n开始时间：${new Date().toISOString()}\n`, 'utf8');
@@ -53,6 +57,7 @@ function invokeCodex(candidate, args) {
 }
 
 function discoverCodexAppRoots() {
+  if (process.platform !== 'win32') return [];
   if (process.env.STORYBOARD_TEST_CODEX_APP_ROOT) {
     return [resolve(process.env.STORYBOARD_TEST_CODEX_APP_ROOT)];
   }
@@ -98,8 +103,59 @@ function prepareCodexFromDesktopApp() {
   return null;
 }
 
+function firstWorkingCodex(candidates) {
+  for (const candidate of candidates) {
+    const result = invokeCodex(candidate, ['--version']);
+    if (!result.error && result.status === 0) return candidate;
+  }
+  return null;
+}
+
+function installCodexCliOnMac() {
+  info('未找到可直接调用的 Codex 组件，正在安装 OpenAI 官方 Codex CLI...');
+  const download = spawnSync('curl', ['-fsSL', 'https://chatgpt.com/codex/install.sh'], {
+    cwd: rootDir,
+    encoding: 'buffer',
+    env: codexEnv,
+  });
+  if (download.error || download.status !== 0) {
+    writeLog('WARN', `Codex CLI 下载失败：${download.error?.message || download.stderr?.toString('utf8') || `exit ${download.status}`}`);
+    return null;
+  }
+  const install = spawnSync('/bin/sh', [], {
+    cwd: rootDir,
+    input: download.stdout,
+    encoding: 'utf8',
+    env: { ...codexEnv, CODEX_NON_INTERACTIVE: '1' },
+  });
+  if (install.error || install.status !== 0) {
+    writeLog('WARN', `Codex CLI 安装失败：${install.error?.message || install.stderr || install.stdout || `exit ${install.status}`}`);
+    return null;
+  }
+  writeLog('INFO', install.stdout || 'OpenAI 官方 Codex CLI 安装完成');
+  return firstWorkingCodex([
+    join(installHome, '.local', 'bin', 'codex'),
+    process.env.CODEX_INSTALL_DIR && join(process.env.CODEX_INSTALL_DIR, 'codex'),
+  ].filter(Boolean));
+}
+
 function findCodex() {
-  const candidates = [
+  if (process.platform === 'darwin') {
+    const codex = firstWorkingCodex([
+      process.env.CODEX_CLI,
+      join(codexHome, 'plugins', '.plugin-appserver', 'codex'),
+      'codex',
+      process.env.CODEX_INSTALL_DIR && join(process.env.CODEX_INSTALL_DIR, 'codex'),
+      join(installHome, '.local', 'bin', 'codex'),
+      '/opt/homebrew/bin/codex',
+      '/usr/local/bin/codex',
+      '/Applications/ChatGPT.app/Contents/Resources/codex',
+      '/Applications/Codex.app/Contents/Resources/codex',
+    ].filter(Boolean));
+    return codex || installCodexCliOnMac();
+  }
+
+  const codex = firstWorkingCodex([
     process.env.CODEX_CLI,
     join(codexHome, 'plugins', '.plugin-appserver', 'codex.exe'),
     'codex',
@@ -108,11 +164,8 @@ function findCodex() {
     join(localAppData, 'OpenAI', 'Codex', 'bin', 'codex.exe'),
     join(localAppData, 'OpenAI', 'Codex', 'manual-cli', 'codex.exe'),
     installerCodex,
-  ].filter(Boolean);
-  for (const candidate of candidates) {
-    const result = invokeCodex(candidate, ['--version']);
-    if (!result.error && result.status === 0) return candidate;
-  }
+  ].filter(Boolean));
+  if (codex) return codex;
   return prepareCodexFromDesktopApp();
 }
 
@@ -131,14 +184,19 @@ function readMarketplace() {
   }
 }
 
-if (process.platform !== 'win32') fail('当前工具包仅支持 64 位 Windows 10 / 11。');
+if (!['win32', 'darwin'].includes(process.platform)) fail('当前工具包仅支持 Windows 10 / 11 与 macOS。');
 if (!existsSync(bundledNode) || !existsSync(pluginServer)) fail('工具包文件不完整，请重新下载并完整解压。');
 
 mkdirSync(codexHome, { recursive: true });
 info(`Codex 配置目录：${codexHome}`);
 
 const codex = findCodex();
-if (!codex) fail('未找到可供安装器调用的 Codex Windows 组件。请确认 Windows 版 ChatGPT/Codex App 已安装、已登录并至少启动过一次；如果 App 正在运行，请发送 install-log.txt。');
+if (!codex) {
+  const platformHelp = process.platform === 'darwin'
+    ? '请确认 Mac 已联网，并已安装、登录且至少启动过一次 ChatGPT/Codex App。'
+    : '请确认 Windows 版 ChatGPT/Codex App 已安装、已登录并至少启动过一次。';
+  fail(`未找到可供安装器调用的 Codex 组件。${platformHelp}如果 App 正在运行，请发送 install-log.txt。`);
+}
 
 info(`Codex 命令位置：${codex}`);
 info('1/4 正在部署分镜审核台个人插件...');
@@ -189,5 +247,6 @@ if (list.status !== 0 || !list.stdout.includes(`${pluginName}@${marketplace.name
   fail(`插件未出现在 Codex 已安装列表中，请重新运行安装脚本。\n${list.error?.message || list.stderr || ''}`);
 }
 
-info('\n[成功] 分镜审核台 v0.1.10 与个人插件均已就绪。');
-info('下一步：完整退出并重新打开 Codex，然后双击“一键启动.cmd”。');
+info('\n[成功] 分镜审核台 v0.1.11 与个人插件均已就绪。');
+const launcher = process.platform === 'darwin' ? '一键启动.command' : '一键启动.cmd';
+info(`下一步：完整退出并重新打开 ChatGPT/Codex App，然后双击“${launcher}”。`);

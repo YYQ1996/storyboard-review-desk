@@ -85,7 +85,7 @@ const server = createServer(async (request, response) => {
     const path = decodeURIComponent(url.pathname);
 
     if (request.method === 'GET' && path === '/api/health') {
-      return sendJson(response, 200, { ok: true, version: '0.1.10' });
+      return sendJson(response, 200, { ok: true, version: '0.1.11' });
     }
     if (request.method === 'GET' && path === '/api/logs') {
       return sendJson(response, 200, { logs: await recentLogs(url.searchParams.get('limit')) });
@@ -112,7 +112,7 @@ const server = createServer(async (request, response) => {
     const createRun = path.match(/^\/api\/batches\/([^/]+)\/runs$/);
     if (request.method === 'POST' && createRun) {
       const body = await readJson(request);
-      const result = await store.createRun(createRun[1], body.mode);
+      const result = await store.createRun(createRun[1], body.mode, body.referenceSheets);
       await logEvent('run_created', { runId: result.run.id, batchId: result.run.batchId, mode: result.run.mode, shotNos: result.run.sourceShotNos, assetCount: result.run.assetIds?.length || 0 });
       return sendJson(response, 201, result);
     }
