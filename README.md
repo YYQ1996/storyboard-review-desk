@@ -4,7 +4,7 @@
 
 **把分镜脚本、参考资产与 Codex 串成一条可审核、可返修、可回填的宫格工作流。**
 
-`Windows` · `Codex 个人插件` · `本地数据` · `v0.1.10`
+`Windows / macOS` · `Codex 个人插件` · `本地数据` · `v0.1.10`
 
 <img src="docs/images/app-overview.png" alt="分镜审核台产品界面" width="100%" />
 
@@ -28,15 +28,20 @@
 
 ## 最快开始
 
-> **下载 Windows 工具包并解压 → 双击 `一键安装.cmd` → 重启 Codex → 双击 `一键启动.cmd`**
+> **下载对应系统工具包并解压 → 双击一键安装 → 重启 Codex → 双击一键启动**
 
 [下载最新版工具包](https://github.com/YYQ1996/storyboard-review-desk/releases/latest) · [查看完整安装说明](docs/安装与使用.md)
 
-工具包已经包含运行环境和插件依赖。学员不需要安装 Git、GitHub、Node.js、Python，也不需要打开命令行；只需提前安装并登录 Codex Windows 客户端。
+工具包已经包含运行环境和插件依赖。学员不需要安装 Git、GitHub、Node.js、Python，也不需要打开命令行；只需提前安装并登录 ChatGPT/Codex 桌面客户端。
+
+- Windows：运行 `一键安装.cmd`、`一键启动.cmd`。
+- macOS：运行 `一键安装.command`、`一键启动.command`；单个通用包同时支持 Apple 芯片和 Intel 芯片。首次运行如被系统拦截，请右键文件选择“打开”。
+
+[Windows 完整说明](docs/安装与使用.md) · [macOS 完整说明](docs/安装与使用-macOS.md)
 
 > `v0.1.10` 已修复干净电脑只有 ChatGPT/Codex Windows App、没有 PATH 或 `manual-cli` 时被误报“未找到 Codex”的问题。请勿继续分发 `v0.1.8`、`v0.1.9` 安装包。
 
-工具包可解压到桌面、下载目录或任意本地磁盘文件夹，不需要放进 ChatGPT/Codex 的安装目录。安装完成后请不要移动、改名或删除整个工具包文件夹；如需换位置，移动后重新双击 `一键安装.cmd` 即可。
+工具包可解压到桌面、下载目录或任意本地磁盘文件夹，不需要放进 ChatGPT/Codex 的安装目录。安装完成后请不要移动、改名或删除整个工具包文件夹；如需换位置，移动后重新运行对应系统的“一键安装”即可。
 
 ## 第一次使用
 
