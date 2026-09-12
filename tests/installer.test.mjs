@@ -38,7 +38,7 @@ test('发布包入口可在隔离用户目录完成插件安装并显式传递 C
   try {
     const packageRoot = process.env.STORYBOARD_INSTALL_PACKAGE_ROOT
       ? resolve(process.env.STORYBOARD_INSTALL_PACKAGE_ROOT)
-      : join(sandbox, '分镜审核台-v0.1.10-Windows');
+      : join(sandbox, '分镜审核台-v0.1.11-Windows');
     const installHome = join(sandbox, 'student-home');
     const fakeCodexLog = join(sandbox, 'fake-codex.jsonl');
     const fakeCodex = join(sandbox, 'fake-codex.exe');
@@ -91,7 +91,7 @@ test('发布包入口可在隔离用户目录完成插件安装并显式传递 C
       stdout: result.stdout,
       stderr: result.stderr,
     }));
-    assert.match(`${result.stdout}\n${result.stderr}`, /分镜审核台 v0\.1\.10 与个人插件均已就绪/);
+    assert.match(`${result.stdout}\n${result.stderr}`, /分镜审核台 v0\.1\.11 与个人插件均已就绪/);
     assert.ok(existsSync(join(installHome, '.codex')), '安装器应创建默认 CODEX_HOME');
     assert.ok(existsSync(join(installHome, '.agents', 'plugins', 'marketplace.json')));
     assert.ok(existsSync(join(installHome, 'plugins', 'storyboard-review-desk', '.mcp.json')));
@@ -110,7 +110,7 @@ test('没有 PATH 和 plugin-appserver 时可从已安装的 ChatGPT Windows App
 }, () => {
   const sandbox = mkdtempSync(join(tmpdir(), 'storyboard-review-app-bundle-'));
   try {
-    const packageRoot = join(sandbox, '分镜审核台-v0.1.10-Windows');
+    const packageRoot = join(sandbox, '分镜审核台-v0.1.11-Windows');
     const installHome = join(sandbox, 'student-home');
     const appRoot = join(sandbox, 'windows-app-package');
     const fakeCodexLog = join(sandbox, 'fake-codex.jsonl');

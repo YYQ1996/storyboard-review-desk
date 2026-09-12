@@ -1,6 +1,6 @@
 {
   "name": "storyboard-review-desk",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "面向 AI 短剧创作者的分镜宫格审核、返修与 Codex 自动回填工具。",
   "private": true,
   "type": "module",

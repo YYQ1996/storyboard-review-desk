@@ -35,14 +35,14 @@ function toolResult(value) {
 
 const server = new McpServer({
   name: 'storyboard-review-desk',
-  version: '0.1.10',
+  version: '0.1.11',
 }, {
   instructions: 'Use these tools only for a run token created by the local Storyboard Review Desk. Always fetch batch context before generating, use only the returned current assets, and submit the final image plus complete standard storyboard text back to the same run token.',
 });
 
 server.registerTool('get_batch_context', {
   title: '读取分镜批次',
-  description: '使用审核台给出的运行令牌，读取且仅读取该批次的完整结构化分镜、画幅、返修意见和本次选中的人物/场景/道具参考资产绝对路径。生图前必须先调用。',
+  description: '使用审核台给出的运行令牌，读取且仅读取该批次的完整结构化分镜、画幅、返修意见和本次参考输入绝对路径；超过 5 项原始资产时，返回审核台生成的 5 张分类索引板。生图前必须先调用。',
   inputSchema: {
     token: z.string().min(16).describe('审核台创建任务指令时给出的运行令牌'),
   },
