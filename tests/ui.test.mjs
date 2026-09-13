@@ -61,7 +61,9 @@ test('后台回填刷新会实际恢复审核意见输入状态', () => {
 test('审核台展示品牌图标与开发者名称', async () => {
   await access(join(rootDir, 'app', 'assets', 'brand-icon.png'));
   assert.match(appHtml, /assets\/brand-icon\.png/);
-  assert.match(appHtml, /YIQI玩AI/);
+  assert.match(appHtml, /by YIQI玩AI/);
+  assert.match(appHtml, /YIQI玩AI · 出品/);
+  assert.match(appHtml, /class="w-24 h-24 object-contain select-none opacity-90"/);
   assert.match(serverSource, /path === '\/assets\/brand-icon\.png'/);
 });
 

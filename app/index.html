@@ -76,11 +76,11 @@
 <!-- ================= 顶栏 ================= -->
 <header class="shrink-0 h-14 px-4 lg:px-6 flex items-center gap-3 border-b border-ink-line bg-ink-bg">
   <!-- 标识 -->
-  <div class="flex items-center gap-2.5 shrink-0">
-    <img src="assets/brand-icon.png" alt="分镜审核台图标" class="w-8 h-8 object-contain" />
-    <div class="leading-none">
+  <div class="flex items-center gap-2 shrink-0">
+    <img src="assets/brand-icon.png" alt="YIQI玩AI 吉祥物" class="w-9 h-9 object-contain select-none" draggable="false" />
+    <div class="leading-tight">
       <h1 class="text-[15px] font-semibold tracking-wide">分镜审核台</h1>
-      <p class="mt-1 text-[9.5px] tracking-wide text-ink-faint">YIQI玩AI</p>
+      <p class="text-[9.5px] tracking-wider text-ink-faint select-none">by YIQI玩AI</p>
     </div>
   </div>
   <!-- 项目名（可编辑） -->
@@ -1127,10 +1127,7 @@ function renderWorkspace() {
     const hasScript = state.shots.length > 0;
     main.innerHTML = `
     <section class="flex-1 flex flex-col items-center justify-center gap-5 py-24 text-center px-6">
-      <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#3a3a3a" stroke-width="1.4">
-        <rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/>
-        <rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/>
-      </svg>
+      <img src="assets/brand-icon.png" alt="YIQI玩AI 吉祥物" class="w-24 h-24 object-contain select-none opacity-90" draggable="false" />
       <div>
         <p class="text-[15px] font-medium text-neutral-300">${hasScript ? '分镜脚本已导入，创建第一批开始审核' : '开始你的第一批分镜审核'}</p>
         <p class="text-[13px] text-ink-faint mt-1.5 leading-relaxed">${hasScript ? '当前项目不能重复导入脚本；如需更换，请先清空当前项目。' : '导入分镜脚本 → 手动划分批次 → 创建 Codex 任务指令<br/>→ Codex 自动回填结果，逐版审核直到通过'}</p>
@@ -1140,6 +1137,7 @@ function renderWorkspace() {
           ? '<button data-act="open-newbatch" class="u-trans h-10 px-6 rounded-full text-[14px] font-medium bg-neutral-100 text-ink-bg hover:bg-white">新建批次</button>'
           : '<button data-act="open-import" class="u-trans h-10 px-6 rounded-full text-[14px] font-medium bg-neutral-100 text-ink-bg hover:bg-white">导入分镜脚本</button><button data-act="load-demo" class="u-trans h-10 px-6 rounded-full text-[14px] border border-ink-line text-ink-mute hover:text-neutral-100 hover:border-neutral-500">先看看示例</button>'}
       </div>
+      <p class="text-[10px] text-ink-faint/70 tracking-widest select-none">YIQI玩AI · 出品</p>
     </section>`;
     renderReviewBar();
     return;
