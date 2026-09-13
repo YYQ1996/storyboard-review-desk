@@ -35,7 +35,7 @@ function toolResult(value) {
 
 const server = new McpServer({
   name: 'storyboard-review-desk',
-  version: '0.1.11',
+  version: '0.1.12',
 }, {
   instructions: 'Use these tools only for a run token created by the local Storyboard Review Desk. Always fetch batch context before generating, use only the returned current assets, and submit the final image plus complete standard storyboard text back to the same run token.',
 });

@@ -23,11 +23,22 @@ if [ ! -x "$NODE" ]; then
   exit 1
 fi
 
-if curl -fsS --max-time 2 "${URL}api/health" >/dev/null 2>&1; then
-  echo "分镜审核台已经在运行，正在打开页面。"
-  open "$URL"
-  sleep 2
-  exit 0
+HEALTH="$(curl -fsS --max-time 2 "${URL}api/health" 2>/dev/null || true)"
+if [ -n "$HEALTH" ]; then
+  if printf '%s' "$HEALTH" | grep -q '"version":"0.1.12"'; then
+    echo "分镜审核台 v0.1.12 已经在运行，正在打开页面。"
+    open "$URL"
+    sleep 2
+    exit 0
+  fi
+  echo "[失败] 端口 43127 正在运行其他版本的分镜审核台。"
+  echo "请先关闭旧版的 Terminal 启动窗口，再重新双击本文件。"
+  if [ "${STORYBOARD_START_NONINTERACTIVE:-}" = "1" ]; then
+    exit 2
+  fi
+  read -r -n 1 -s -p "按任意键关闭窗口。"
+  echo
+  exit 2
 fi
 
 echo "正在启动分镜审核台，请保持本窗口打开……"

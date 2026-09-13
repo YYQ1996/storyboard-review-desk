@@ -35,5 +35,7 @@ test('macOS 重复启动时先检查现有服务，不会再次监听端口', ()
   const healthCheck = source.indexOf('${URL}api/health');
   const serverStart = source.indexOf('server/server.mjs');
   assert.ok(healthCheck >= 0 && serverStart > healthCheck);
-  assert.match(source, /分镜审核台已经在运行/);
+  assert.match(source, /"version":"0\.1\.12"/);
+  assert.match(source, /分镜审核台 v0\.1\.12 已经在运行/);
+  assert.match(source, /请先关闭旧版的 Terminal 启动窗口/);
 });

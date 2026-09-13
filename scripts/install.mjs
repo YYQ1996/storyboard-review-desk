@@ -247,6 +247,6 @@ if (list.status !== 0 || !list.stdout.includes(`${pluginName}@${marketplace.name
   fail(`插件未出现在 Codex 已安装列表中，请重新运行安装脚本。\n${list.error?.message || list.stderr || ''}`);
 }
 
-info('\n[成功] 分镜审核台 v0.1.11 与个人插件均已就绪。');
+info('\n[成功] 分镜审核台 v0.1.12 与个人插件均已就绪。');
 const launcher = process.platform === 'darwin' ? '一键启动.command' : '一键启动.cmd';
 info(`下一步：完整退出并重新打开 ChatGPT/Codex App，然后双击“${launcher}”。`);
