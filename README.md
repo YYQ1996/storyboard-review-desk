@@ -112,6 +112,6 @@ node --test --test-isolation=none tests/*.test.mjs
 
 ---
 
-当前本地交付候选版：`v0.1.12`。本版本包含最多 14 项参考资产与 5 张单类型索引板、后台回填不打断批注输入、审核台与 Codex 插件统一品牌标识，以及旧版占用端口时的升级提示。
+当前公开交付版：`v0.1.12`。本版本包含最多 14 项参考资产与 5 张单类型索引板、后台回填不打断批注输入、审核台与 Codex 插件统一品牌标识，以及旧版占用端口时的升级提示。
 
-> Windows 与 macOS 安装包已在本地生成；尚未同步到 GitHub，等待最终验收和明确发布指令。
+> Windows 与 macOS 安装包、SHA256 校验文件和源码均已发布到 [GitHub v0.1.12 Release](https://github.com/YYQ1996/storyboard-review-desk/releases/tag/v0.1.12)。
